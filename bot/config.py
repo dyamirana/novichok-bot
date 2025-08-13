@@ -1,6 +1,6 @@
 import os
 import sys
-from collections import deque
+from collections import defaultdict, deque
 from pathlib import Path
 
 try:
@@ -23,7 +23,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DB_PATH = Path(os.getenv("DB_PATH", "data/bot.db"))
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 
-chat_history = deque(maxlen=10)
+chat_history: dict[int, deque[str]] = defaultdict(lambda: deque(maxlen=50))
 
 def setup_logging():
     level = os.getenv("LOG_LEVEL", "INFO").upper()
