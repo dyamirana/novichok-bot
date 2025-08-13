@@ -22,7 +22,10 @@ async def get_history(chat_id: int, limit: int = 10) -> list[str]:
     return await redis.lrange(key, -limit, -1)
 
 
-async def increment_count(chat_id: int) -> bool:
+async def increment_count(chat_id: int, msg_id: int) -> bool:
+    last_key = f"chat:{chat_id}:last_msg"
+    if not await redis.set(last_key, msg_id, nx=True, ex=60):
+        return False
     key = f"chat:{chat_id}:count"
     val = await redis.incr(key)
     if val >= 10:

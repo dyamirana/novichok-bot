@@ -11,6 +11,8 @@ buttons appear beneath the greeting that new members see.
 Environment variables:
 
 - `BOT_TOKEN` – Telegram bot token
+- `BOT_TOKENS` – comma-separated list of `Personality:token` pairs. The bot with
+  personality `JoePeach` acts as the admin bot and sends greetings.
 - `ADMIN_ID` – Telegram user id of the admin
 - `GROUP_ID` – chat id of the group
 - `DEEPSEEK_API_KEY` – token for DeepSeek API
