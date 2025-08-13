@@ -4,12 +4,25 @@ import os
 import time
 from collections import deque
 from pathlib import Path
+import hashlib
+import re
+
+import sys
+
+try:
+    from loguru import logger
+    _LOGURU = True
+except Exception:
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logger = logging.getLogger("bot")
+    _LOGURU = False
 
 import aiohttp
 import aiosqlite
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -18,14 +31,52 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))
+_GROUP_IDS_RAW = os.getenv("GROUP_IDS", "").strip()
+_GROUP_ID_SINGLE = os.getenv("GROUP_ID", "0").strip()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DB_PATH = Path(os.getenv("DB_PATH", "data/bot.db"))
 
+# Logging setup helper
+def setup_logging():
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    if '_LOGURU' in globals() and _LOGURU:
+        logger.remove()
+        logger.add(
+            sys.stdout,
+            level=level,
+            backtrace=False,
+            diagnose=False,
+            enqueue=True,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+        )
+
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-chat_history = deque(maxlen=20)
+chat_history = deque(maxlen=10)
 db: aiosqlite.Connection
 
+def _parse_group_ids(raw: str) -> set[int]:
+    ids: set[int] = set()
+    if not raw:
+        return ids
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.add(int(part))
+        except ValueError:
+            continue
+    return ids
+
+ALLOWED_CHAT_IDS: set[int] = _parse_group_ids(_GROUP_IDS_RAW)
+if not ALLOWED_CHAT_IDS and _GROUP_ID_SINGLE and _GROUP_ID_SINGLE != "0":
+    try:
+        ALLOWED_CHAT_IDS = {int(_GROUP_ID_SINGLE)}
+    except ValueError:
+        ALLOWED_CHAT_IDS = set()
+
+def is_group_allowed(chat_id: int) -> bool:
+    return chat_id in ALLOWED_CHAT_IDS
 
 class GreetingState(StatesGroup):
     waiting = State()
@@ -57,18 +108,22 @@ async def init_db() -> aiosqlite.Connection:
     conn = await aiosqlite.connect(DB_PATH)
     await conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS config
+        (
+            key   TEXT PRIMARY KEY,
             value TEXT
         );
-        CREATE TABLE IF NOT EXISTS buttons (
-            label TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS buttons
+        (
+            label    TEXT PRIMARY KEY,
             response TEXT
         );
-        CREATE TABLE IF NOT EXISTS allowed_users (
+        CREATE TABLE IF NOT EXISTS allowed_users
+        (
             user_id INTEGER PRIMARY KEY
         );
-        CREATE TABLE IF NOT EXISTS rate_limit (
+        CREATE TABLE IF NOT EXISTS rate_limit
+        (
             user_id INTEGER PRIMARY KEY,
             last_ts INTEGER
         );
@@ -109,10 +164,19 @@ async def set_question(question: str) -> None:
 
 
 async def get_buttons() -> dict:
-    buttons = {}
+    buttons: dict[str, dict] = {}
     async with db.execute("SELECT label,response FROM buttons") as cur:
         async for label, response in cur:
-            buttons[label] = response
+            try:
+                payload = json.loads(response)
+                if isinstance(payload, dict) and "type" in payload:
+                    buttons[label] = payload
+                else:
+                    # Fallback: plain text stored inside JSON or unexpected structure
+                    buttons[label] = {"type": "text", "text": str(payload)}
+            except Exception:
+                # Legacy plain text response
+                buttons[label] = {"type": "text", "text": response}
     return buttons
 
 
@@ -124,6 +188,25 @@ async def add_button(label: str, response: str) -> None:
 async def remove_button(label: str) -> None:
     await db.execute("DELETE FROM buttons WHERE label=?", (label,))
     await db.commit()
+
+
+
+# Helper to generate a short hash for button labels
+def _btn_id(label: str) -> str:
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()[:10]
+
+# Helper to extract and strip spoiler markers from captions
+def _extract_spoiler_from_caption(caption: str) -> tuple[str, bool]:
+    if not caption:
+        return "", False
+    text = caption
+    has = False
+    markers = ["#spoiler", "[spoiler]", "(spoiler)", "#спойлер", "[спойлер]", "(спойлер)"]
+    for m in markers:
+        if m.lower() in text.lower():
+            has = True
+            text = re.sub(re.escape(m), "", text, flags=re.IGNORECASE)
+    return text.strip(), has
 
 
 async def get_allowed_users() -> list:
@@ -152,7 +235,8 @@ async def is_allowed(uid: int) -> bool:
 
 
 async def check_rate(uid: int) -> tuple:
-    if uid == ADMIN_ID:
+    # Admin и разрешённые пользователи не лимитируются
+    if uid == ADMIN_ID or await is_allowed(uid):
         return True, 0
     now = int(time.time())
     async with db.execute("SELECT last_ts FROM rate_limit WHERE user_id=?", (uid,)) as cur:
@@ -195,10 +279,32 @@ def kuplinov_menu():
     return builder.as_markup()
 
 
+
 async def cmd_start(message: Message) -> None:
     if message.from_user.id != ADMIN_ID or message.chat.type != "private":
         return
     await message.answer("Выберите действие:", reply_markup=main_menu())
+
+
+# Handler for /chatid command: sends chat_id to admin in private
+async def cmd_chatid(message: Message) -> None:
+    """Send current chat_id to admin in private."""
+    chat = message.chat
+    title = chat.title or getattr(chat, "full_name", "") or ""
+    info = (
+        "Запрос chat_id"
+        f"\nНазвание: {title}"
+        f"\nТип: {chat.type}"
+        f"\nchat_id: <code>{chat.id}</code>"
+    )
+    try:
+        await message.bot.send_message(ADMIN_ID, info)
+        if chat.type != "private":
+            await message.answer("chat_id отправлен админу в личку")
+    except Exception as e:
+        # Админ не писал боту в личку или другой сбой
+        logger.warning(f"[CHAT_ID_NOTIFY_FAIL] chat_id={chat.id} err={e}")
+        await message.answer("Не удалось отправить админу. Пусть админ напишет боту /start в личку.")
 
 
 async def cmd_set_greeting(callback: CallbackQuery, state: FSMContext) -> None:
@@ -282,8 +388,31 @@ async def process_button_label(message: Message, state: FSMContext) -> None:
 async def process_button_response(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     label = data.get("label", "")
-    response = message.text or ""
-    await add_button(label, response)
+
+    # Determine payload type
+    if message.voice:
+        payload = {
+            "type": "voice",
+            "file_id": message.voice.file_id,
+            "caption": message.caption or "",
+        }
+    elif message.video:
+        cap = message.caption or ""
+        cap, cap_flag = _extract_spoiler_from_caption(cap)
+        msg_flag = bool(getattr(message, "has_media_spoiler", False))
+        payload = {
+            "type": "video",
+            "file_id": message.video.file_id,
+            "caption": cap,
+            "spoiler": True if (cap_flag or msg_flag) else False,
+        }
+    elif message.text:
+        payload = {"type": "text", "text": message.text}
+    else:
+        await message.answer("Неподдерживаемый тип ответа. Отправьте текст, голос или видео")
+        return
+
+    await add_button(label, json.dumps(payload))
     await message.answer("Кнопка добавлена", reply_markup=buttons_menu())
     await state.clear()
 
@@ -306,10 +435,34 @@ async def process_button_edit_select(callback: CallbackQuery, state: FSMContext)
 async def process_button_edit_response(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     label = data.get("label", "")
-    response = message.text or ""
-    await add_button(label, response)
+
+    if message.voice:
+        payload = {
+            "type": "voice",
+            "file_id": message.voice.file_id,
+            "caption": message.caption or "",
+        }
+    elif message.video:
+        cap = message.caption or ""
+        cap, cap_flag = _extract_spoiler_from_caption(cap)
+        msg_flag = bool(getattr(message, "has_media_spoiler", False))
+        payload = {
+            "type": "video",
+            "file_id": message.video.file_id,
+            "caption": cap,
+            "spoiler": True if (cap_flag or msg_flag) else False,
+        }
+    elif message.text:
+        payload = {"type": "text", "text": message.text}
+    else:
+        await message.answer("Неподдерживаемый тип ответа. Отправьте текст, голос или видео")
+        return
+
+    await add_button(label, json.dumps(payload))
     await message.answer("Кнопка обновлена", reply_markup=buttons_menu())
     await state.clear()
+
+
 async def cmd_kuplinov_menu(callback: CallbackQuery) -> None:
     await callback.message.edit_text("Настройка доступа к /kuplinov", reply_markup=kuplinov_menu())
     await callback.answer()
@@ -366,8 +519,9 @@ async def send_preview(callback: CallbackQuery) -> None:
     markup = None
     if question and buttons:
         builder = InlineKeyboardBuilder()
+        target_uid = callback.from_user.id  # preview is for admin
         for lbl in buttons.keys():
-            builder.button(text=lbl, callback_data=lbl)
+            builder.button(text=lbl, callback_data=f"btn:{target_uid}:{_btn_id(lbl)}")
         builder.adjust(1)
         markup = builder.as_markup()
     mention = callback.from_user.mention_html()
@@ -393,19 +547,24 @@ async def send_preview(callback: CallbackQuery) -> None:
 
 
 async def welcome(message: Message) -> None:
-    if message.chat.id != GROUP_ID:
+    if not is_group_allowed(message.chat.id):
         return
     greet = await get_greeting()
     question = await get_question()
     buttons = await get_buttons()
+    # Ignore bots (including the bot itself) when users are added
+    bot_id = getattr(message.bot, "id", None)
     for member in message.new_chat_members:
+        if member.is_bot or (bot_id and member.id == bot_id):
+            continue
         mention = member.mention_html()
         markup = None
         q_text = question.replace("{user}", mention) if question and buttons else ""
         if question and buttons:
             builder = InlineKeyboardBuilder()
+            target_uid = member.id
             for lbl in buttons.keys():
-                builder.button(text=lbl, callback_data=lbl)
+                builder.button(text=lbl, callback_data=f"btn:{target_uid}:{_btn_id(lbl)}")
             builder.adjust(1)
             markup = builder.as_markup()
         g_type = greet.get("type")
@@ -430,30 +589,92 @@ async def welcome(message: Message) -> None:
 
 
 async def on_button(query: CallbackQuery) -> None:
-    if query.message.chat.id != GROUP_ID:
+    # Allow in group or admin preview
+    in_group =  is_group_allowed(query.message.chat.id)
+    in_admin_preview = (query.message.chat.type == "private" and query.from_user.id == ADMIN_ID)
+    if not (in_group or in_admin_preview):
         await query.answer()
         return
+
+    # Parse callback data: btn:<target_uid>:<hash>
+    data = (query.data or "")
+    parts = data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "btn":
+        await query.answer()
+        return
+
+    try:
+        target_uid = int(parts[1])
+    except ValueError:
+        await query.answer()
+        return
+    hid = parts[2]
+
+    # Only admin or intended user can press
+    if query.from_user.id not in (ADMIN_ID, target_uid):
+        await query.answer("Эта кнопка не для вас", show_alert=True)
+        return
+
     buttons = await get_buttons()
-    response = buttons.get(query.data)
-    if response:
-        text = response.replace("{user}", query.from_user.mention_html())
+    # find label by hash
+    label = None
+    for lbl in buttons.keys():
+        if _btn_id(lbl) == hid:
+            label = lbl
+            break
+
+    if not label:
+        await query.answer("Кнопка устарела, обновите сообщение", show_alert=True)
+        return
+
+    resp = buttons.get(label)
+
+    # delete/replace original message with the response
+    try:
+        await query.message.delete()
+    except Exception:
+        # ignore deletion errors
+        pass
+
+    # Mention: by default use the presser
+    mention = query.from_user.mention_html()
+
+    # Backward compatibility: plain text string
+    if isinstance(resp, str):
+        text = resp.replace("{user}", mention)
         await query.message.answer(text)
+        await query.answer()
+        return
+
+    rtype = resp.get("type")
+    if rtype == "video":
+        caption = (resp.get("caption") or "").replace("{user}", mention)
+        has_spoiler = bool(resp.get("spoiler"))
+        await query.message.answer_video(resp.get("file_id"), caption=caption or None, has_spoiler=has_spoiler)
+    elif rtype == "voice":
+        caption = (resp.get("caption") or "").replace("{user}", mention)
+        await query.message.answer_voice(resp.get("file_id"), caption=caption or None)
+    else:
+        text = (resp.get("text") or "").replace("{user}", mention)
+        await query.message.answer(text)
+
     await query.answer()
 
 
 async def track_history(message: Message) -> None:
-    if message.chat.id != GROUP_ID:
+    if not is_group_allowed(message.chat.id):
         return
     if not message.text or message.text.startswith("/"):
         return
     user = message.from_user.full_name
     chat_history.append(f"{user}: {message.text}")
+    logger.info(f"[history] {user}: {message.text}")
 
 
 async def cmd_kuplinov(message: Message) -> None:
-    if message.chat.id != GROUP_ID:
-        return
-    if not await is_allowed(message.from_user.id):
+    if not is_group_allowed(message.chat.id):
+        title = message.chat.title or ""
+        logger.warning(f"[UNALLOWED_CHAT] chat_id={message.chat.id} title='{title}' type={message.chat.type}")
         return
     ok, wait = await check_rate(message.from_user.id)
     if not ok:
@@ -463,13 +684,14 @@ async def cmd_kuplinov(message: Message) -> None:
         await message.answer("DeepSeek API key is missing")
         return
     context = "\n".join(chat_history)
+    logger.info(f"Context for /kuplinov:\n{context}")
     prompt = (
         "Сочини шутку по шаблону \"А вот Куплинов (что-то там)\" или \"А вот Куплинов не (что-то там)\". "
         "Без цензуры. Пример: А вот Куплинов бы уже прошел эту игру, "
         "А вот Куплинов уже показал жопу, А вот Куплинов не прогревал своих зрителей и т.д. "
-        "Шути без цензуры, чтобы смотрелось органично в чате. "
+        "Старайся шутить постиронично и лаконично, как Мэддисон ака JoePeach"
         "Ответ дай одним предложением, только шутку, больше ничего не добавляй. "
-        "Для основы шутки бери последние сообщения из чата которые приведены ниже:\n"
+        "Для основы шутки бери сообщения из чата которые приведены ниже:\n"
         f"{context}"
     )
     try:
@@ -486,6 +708,7 @@ async def cmd_kuplinov(message: Message) -> None:
 
 def register_handlers(dp: Dispatcher) -> None:
     dp.message.register(cmd_start, Command("start"), F.from_user.id == ADMIN_ID, F.chat.type == "private")
+    dp.message.register(cmd_chatid, Command("chatid"))
     dp.callback_query.register(cmd_set_greeting, F.data == "menu_greeting", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(cmd_set_question, F.data == "menu_question", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(cmd_buttons, F.data == "menu_buttons", F.from_user.id == ADMIN_ID)
@@ -493,7 +716,9 @@ def register_handlers(dp: Dispatcher) -> None:
     dp.callback_query.register(show_buttons_for_edit, F.data == "btn_edit", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(process_button_add, F.data == "btn_add", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(process_button_delete, F.data.startswith("delbtn:"), F.from_user.id == ADMIN_ID)
-    dp.callback_query.register(process_button_edit_select, F.data.startswith("editbtn:"), F.from_user.id == ADMIN_ID, state="*")
+    dp.callback_query.register(
+        process_button_edit_select, F.data.startswith("editbtn:"), F.from_user.id == ADMIN_ID, StateFilter("*")
+        )
     dp.callback_query.register(cmd_kuplinov_menu, F.data == "menu_kuplinov", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(process_kp_add, F.data == "kp_add", F.from_user.id == ADMIN_ID)
     dp.callback_query.register(process_kp_del, F.data == "kp_del", F.from_user.id == ADMIN_ID)
@@ -508,17 +733,19 @@ def register_handlers(dp: Dispatcher) -> None:
     dp.message.register(process_kp_add_id, KuplinovAddState.waiting_id)
     dp.message.register(process_kp_del_id, KuplinovDelState.waiting_id)
     dp.message.register(welcome, F.new_chat_members)
-    dp.message.register(cmd_kuplinov, Command("kuplinov"), F.chat.id == GROUP_ID)
-    dp.message.register(track_history, F.chat.id == GROUP_ID, F.text)
-    dp.callback_query.register(on_button)
+    dp.message.register(cmd_kuplinov, Command("kuplinov"))
+    dp.callback_query.register(on_button, F.data.startswith("btn:"))
+    dp.message.register(track_history, F.text)
 
 
 async def main() -> None:
     global db
     db = await init_db()
+    setup_logging()
     bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
     dp = Dispatcher(storage=MemoryStorage())
     register_handlers(dp)
+    logger.info("bot started")
     await dp.start_polling(bot)
 
 

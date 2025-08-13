@@ -3,9 +3,9 @@ services:
   bot:
     build: .
     environment:
-      BOT_TOKEN: "${BOT_TOKEN}"
-      ADMIN_ID: "${ADMIN_ID}"
-      GROUP_ID: "${GROUP_ID}"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      BOT_TOKEN: ""
+      ADMIN_ID: ""
+      DEEPSEEK_API_KEY: ""
+      GROUP_IDS: ""
     volumes:
       - ./data:/app/data
