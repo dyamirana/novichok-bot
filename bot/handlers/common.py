@@ -18,7 +18,7 @@ from ..config import (
 )
 from ..db import check_rate, get_buttons, get_greeting, get_question
 from ..history import add_message, get_history, increment_count, redis
-from ..personalities import MAIN_PROMPT, SLANG_DICT, get_prompt
+from ..personalities import MAIN_PROMPT, SLANG_DICT, get_mood_prompt, get_prompt
 from ..utils import btn_id
 
 
@@ -122,12 +122,14 @@ async def on_button(query: CallbackQuery) -> None:
 
 def _build_prompt(personality_key: str, context: str, priority_text: str, additional_context: str) -> tuple[str, str]:
     prompt = get_prompt(personality_key)
+    mood = get_mood_prompt(personality_key)
     slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
     system_prompt = "\n".join(
         [
             MAIN_PROMPT,
             (f"Словарь сленга (ИСПОЛЬЗУЙ ТОЛЬКО ДЛЯ ПОНИМАНИЯ, НЕ ВСТАВЛЯЙ В ОТВЕТЫ): {slang}\n" if slang else ""),
             prompt,
+            mood,
             (additional_context if additional_context else ""),
             "Дальше от пользователя ты получишь историю чата:\n",
         ]
