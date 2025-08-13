@@ -12,13 +12,19 @@ Environment variables:
 
 - `BOT_TOKEN` – Telegram bot token
 - `BOT_TOKENS` – comma-separated list of `Personality:token` pairs. The bot with
-  personality `JoePeach` acts as the admin bot and sends greetings.
+  personality `JoePeach` acts as the admin bot and sends greetings. All
+  containers should receive the full list so a random personality can reply.
+- `PERSONALITY` – run only a single personality in the current container
 - `ADMIN_ID` – Telegram user id of the admin
 - `GROUP_ID` – chat id of the group
 - `DEEPSEEK_API_KEY` – token for DeepSeek API
 
-All configuration is stored in a SQLite database located at
-`data/bot.db`.
+Prompts for personalities are loaded from files in `data/prompts/NAME.txt`
+and can be changed at runtime. After every 10 messages in the group there is
+a 50% chance of a random personality replying, synchronised across
+containers via Redis.
+
+All configuration is stored in a SQLite database located at `data/bot.db`.
 
 ## Админ-меню
 
