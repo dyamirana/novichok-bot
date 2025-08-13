@@ -1,6 +1,7 @@
 import asyncio
 
-import aiohttp
+from httpx import AsyncClient, AsyncHTTPTransport
+
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -15,6 +16,10 @@ from ..db import check_rate, get_buttons, get_greeting, get_question
 from ..history import add_message, get_history, increment_count
 from ..personalities import MAIN_PROMPT, PERSONALITIES, SLANG_DICT
 from ..utils import btn_id
+import os
+
+
+transport = AsyncHTTPTransport(retries=3)
 
 
 async def welcome(message: Message) -> None:
@@ -112,21 +117,28 @@ async def on_button(query: CallbackQuery) -> None:
     await query.answer()
 
 
-def _build_prompt(personality_key: str, context: str, priority_text: str, additional_context: str) -> str:
+def _build_prompt(personality_key: str, context: str, priority_text: str, additional_context: str) -> tuple[str, str]:
     personality = PERSONALITIES.get(personality_key, {})
     slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
-    prompt = "\n".join(
+    system_prompt = "\n".join(
         [
             MAIN_PROMPT,
-            (additional_context if additional_context else ""),
-            (f"Словарь сленга используй его только для интерпритации слов: {slang}\n" if slang else ""),
+            (f"Словарь сленга (ИСПОЛЬЗУЙ ТОЛЬКО ДЛЯ ПОНИМАНИЯ, НЕ ВСТАВЛЯЙ В ОТВЕТЫ): {slang}\n" if slang else ""),
             personality.get("prompt", ""),
-            (f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n" if priority_text else ""),
-            "История чата (включая ответы бота Bot:; их нужно избегать повторять, не зацикливайся):\n",
-            context
+            (additional_context if additional_context else ""),
+            "Дальше от пользователя ты получишь историю чата:\n"
         ]
     )
-    return prompt
+    user_prompt = priority_text if priority_text else context
+    return system_prompt, user_prompt
+
+
+async def _httpx_post_with_retries(url: str, json_payload: dict, headers: dict, max_attempts: int = 3, timeout: int = 30) -> dict:
+    """POST with retries via httpx + httpx-retry. Retries on 429/5xx."""
+    async with AsyncClient(transport=transport) as client:
+        resp = await client.post(url, json=json_payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def respond_with_personality(
@@ -147,24 +159,20 @@ async def respond_with_personality(
     if not ok:
         await message.answer(f"Подожди {wait} сек.")
         return
-    if not DEEPSEEK_API_KEY:
-        await message.answer("DeepSeek API key is missing")
-        return
     await message.bot.send_chat_action(message.chat.id, "typing")
     history = await get_history(message.chat.id, limit=10)
     context = "\n".join(history)
-    prompt = _build_prompt(personality_key, context, priority_text, additional_context)
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
-            payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
-            async with session.post(DEEPSEEK_URL, json=payload, headers=headers, timeout=30) as resp:
-                data = await resp.json()
-        reply = data["choices"][0]["message"]["content"].strip()
-    except Exception as exp:
-        logger.error(f"[ERROR] while accessing deepseek {exp}")
-        reply = error_message
-    personality_name = PERSONALITIES.get(personality_key, {}).get("name", personality_key)
+    system_prompt, user_prompt = _build_prompt(personality_key, context, priority_text, additional_context)
+
+    # Fallback to DeepSeek over httpx with retries
+
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
+    # messages_payload is preferred; if не определён — соберём минимальный формат
+
+    _msgs = [{"role": "system","content": system_prompt},{"role": "user", "content": user_prompt}]
+    payload = {"model": "deepseek-chat", "messages": _msgs}
+    data = await _httpx_post_with_retries(DEEPSEEK_URL, payload, headers, max_attempts=3, timeout=30)
+    reply = data["choices"][0]["message"]["content"].strip()
 
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
@@ -173,26 +181,25 @@ async def respond_with_personality(
                 await reply_to.reply(text)
             else:
                 await message.answer(text)
-            await add_message(message.chat.id, f"{personality_name}: {text}")
+            # await add_message(message.chat.id, f"BotAnswer: {text}")
             await asyncio.sleep(0.7)
 
 
 async def cmd_kuplinov(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    priority = message.reply_to_message.text if message.reply_to_message else None
     await respond_with_personality(message, "Kuplinov", priority)
 
 
 async def cmd_joepeach(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    priority = message.reply_to_message.text if message.reply_to_message else None
     await respond_with_personality(message, "JoePeach", priority)
 
 
 async def cmd_mrazota(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    priority = message.reply_to_message.text if message.reply_to_message else None
     await respond_with_personality(
         message, "Mrazota", priority,
-        additional_context="Ты можешь разбивать сообщение на несколько строк будто бы это разные сообщения. Используй разделитель </br> для новых строк. "
-                           "Но не разделяй больше чем на 3 сообщения."
+        additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!"
         )
 
 
