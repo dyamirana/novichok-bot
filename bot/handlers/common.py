@@ -113,19 +113,21 @@ async def on_button(query: CallbackQuery) -> None:
     await query.answer()
 
 
-def _build_prompt(personality_key: str, context: str, priority_text: str) -> str:
+def _build_prompt(personality_key: str, context: str, priority_text: str, additional_context: str) -> str:
     personality = PERSONALITIES.get(personality_key, {})
     slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
-    return (
-        MAIN_PROMPT
-        + "\n"
-        + (f"Словарь сленга: {slang}\n" if slang else "")
-        + personality.get("prompt", "")
-        + "\n"
-        + (f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n" if priority_text else "")
-        + "История чата (включая ответы бота; их нужно избегать повторять, не зацикливайся):\n"
-        + context
+    prompt = "\n".join(
+        [
+            MAIN_PROMPT,
+            (additional_context if additional_context else ""),
+            (f"Словарь сленга используй его только для интерпритации слов: {slang}\n" if slang else ""),
+            personality.get("prompt", ""),
+            (f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n" if priority_text else ""),
+            "История чата (включая ответы бота Bot:; их нужно избегать повторять, не зацикливайся):\n",
+            context
+        ]
     )
+    return prompt
 
 
 async def respond_with_personality(
@@ -134,6 +136,7 @@ async def respond_with_personality(
     priority_text: str,
     error_message: str = "Не удалось получить ответ.",
     reply_to: Message | None = None,
+    additional_context: str | None = None,
 ) -> None:
     if not is_group_allowed(message.chat.id):
         title = message.chat.title or ""
@@ -151,7 +154,7 @@ async def respond_with_personality(
     await message.bot.send_chat_action(message.chat.id, "typing")
     history = await get_history(message.chat.id, limit=10)
     context = "\n".join(history)
-    prompt = _build_prompt(personality_key, context, priority_text)
+    prompt = _build_prompt(personality_key, context, priority_text, additional_context)
     try:
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
@@ -163,28 +166,35 @@ async def respond_with_personality(
         logger.error(f"[ERROR] while accessing deepseek {exp}")
         reply = error_message
     personality_name = PERSONALITIES.get(personality_key, {}).get("name", personality_key)
-    target = reply_to or message
+
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
         if text:
-            await target.reply(f"{personality_name}:\n{text}")
+            if reply_to:
+                await reply_to.reply(f"{personality_name}:\n{text}")
+            else:
+                await message.answer(f"{personality_name}:\n{text}")
             await add_message(message.chat.id, f"{personality_name}: {text}")
             await asyncio.sleep(0.7)
 
 
 async def cmd_kuplinov(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else message.text
-    await respond_with_personality(message, "Kuplinov", priority, reply_to=message.reply_to_message)
+    await respond_with_personality(message, "Kuplinov", priority)
 
 
 async def cmd_joepeach(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else message.text
-    await respond_with_personality(message, "JoePeach", priority, reply_to=message.reply_to_message)
+    await respond_with_personality(message, "JoePeach", priority)
 
 
 async def cmd_mrazota(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else message.text
-    await respond_with_personality(message, "Mrazota", priority, reply_to=message.reply_to_message)
+    await respond_with_personality(
+        message, "Mrazota", priority,
+        additional_context="Ты можешь разбивать сообщение на несколько строк будто бы это разные сообщения. Используй разделитель </br> для новых строк. "
+                           "Но не разделяй больше чем на 3 сообщения."
+        )
 
 
 def _personality_key_from_text(text: str) -> str | None:
@@ -214,7 +224,7 @@ async def handle_message(message: Message) -> None:
     ):
         key = _personality_key_from_text(message.reply_to_message.text or "")
         if key:
-            await respond_with_personality(message, key, message.text)
+            await respond_with_personality(message, key, message.text, reply_to=message)
             return
     if triggered:
         key = random.choice(list(PERSONALITIES.keys()))
@@ -222,4 +232,3 @@ async def handle_message(message: Message) -> None:
         await respond_with_personality(
             message, key, priority, reply_to=message.reply_to_message
         )
-
