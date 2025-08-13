@@ -1,5 +1,4 @@
 import asyncio
-import random
 
 import aiohttp
 from aiogram.types import CallbackQuery, Message
@@ -171,9 +170,9 @@ async def respond_with_personality(
         text = mes_.strip()
         if text:
             if reply_to:
-                await reply_to.reply(f"{personality_name}:\n{text}")
+                await reply_to.reply(text)
             else:
-                await message.answer(f"{personality_name}:\n{text}")
+                await message.answer(text)
             await add_message(message.chat.id, f"{personality_name}: {text}")
             await asyncio.sleep(0.7)
 
@@ -197,15 +196,7 @@ async def cmd_mrazota(message: Message) -> None:
         )
 
 
-def _personality_key_from_text(text: str) -> str | None:
-    name = text.split(":", 1)[0].strip()
-    for key, info in PERSONALITIES.items():
-        if info.get("name") == name:
-            return key
-    return None
-
-
-async def handle_message(message: Message) -> None:
+async def handle_message(message: Message, personality_key: str) -> None:
     if not is_group_allowed(message.chat.id):
         return
     if not message.text or message.text.startswith("/"):
@@ -215,20 +206,17 @@ async def handle_message(message: Message) -> None:
     bot_id = getattr(message.bot, "id", None)
     triggered = False
     if len(message.text) > 10:
-        triggered = await increment_count(message.chat.id)
+        triggered = await increment_count(message.chat.id, message.message_id)
     if (
         message.reply_to_message
         and message.reply_to_message.from_user
         and bot_id
         and message.reply_to_message.from_user.id == bot_id
     ):
-        key = _personality_key_from_text(message.reply_to_message.text or "")
-        if key:
-            await respond_with_personality(message, key, message.text, reply_to=message)
-            return
+        await respond_with_personality(message, personality_key, message.text, reply_to=message)
+        return
     if triggered:
-        key = random.choice(list(PERSONALITIES.keys()))
         priority = message.reply_to_message.text if message.reply_to_message else message.text
         await respond_with_personality(
-            message, key, priority, reply_to=message.reply_to_message
+            message, personality_key, priority, reply_to=message.reply_to_message
         )
