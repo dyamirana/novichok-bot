@@ -47,5 +47,6 @@ def register_handlers(dp: Dispatcher) -> None:
 
     dp.message.register(common.welcome, F.new_chat_members)
     dp.message.register(common.cmd_kuplinov, Command("kuplinov"))
+    dp.message.register(common.cmd_joepeach, Command("joepeach"))
     dp.callback_query.register(common.on_button, F.data.startswith("btn:"))
     dp.message.register(common.track_history, F.text)
