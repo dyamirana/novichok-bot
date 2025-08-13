@@ -171,12 +171,16 @@ async def respond_with_personality(
             f"[UNALLOWED_CHAT] chat_id={message.chat.id} title='{title}' type={message.chat.type}"
         )
         return
-    ok, wait = await check_rate(message.from_user.id)
+
+    user = message.from_user or message.sender_chat
+    if not user:
+        return
+    ok, wait = await check_rate(user.id)
     if not ok:
         await message.answer(f"Подожди {wait} сек.")
         return
     await message.bot.send_chat_action(message.chat.id, "typing")
-    logger.info(f"[REQUEST] personality={personality_key} user={message.from_user.id}")
+    logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
     history = await get_history(message.chat.id, limit=10)
     context = "\n".join(history)
     system_prompt, user_prompt = _build_prompt(personality_key, context, priority_text, additional_context)
@@ -273,8 +277,11 @@ async def handle_message(message: Message, personality_key: str) -> None:
         or (message.from_user and message.from_user.is_bot)
     ):
         return
-    user = message.from_user.full_name
-    await add_message(message.chat.id, f"{user}: {message.text}")
+    user_obj = message.from_user or message.sender_chat
+    if not user_obj:
+        return
+    user_name = getattr(user_obj, "full_name", getattr(user_obj, "title", ""))
+    await add_message(message.chat.id, f"{user_name}: {message.text}")
     bot_id = getattr(message.bot, "id", None)
     triggered = False
     if len(message.text) > 10 and personality_key == "JoePeach":
