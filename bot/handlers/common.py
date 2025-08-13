@@ -116,8 +116,9 @@ async def track_history(message: Message) -> None:
     if not message.text or message.text.startswith("/"):
         return
     user = message.from_user.full_name
-    chat_history.append(f"{user}: {message.text}")
-    logger.info(f"[history] {user}: {message.text}")
+    history = chat_history[message.chat.id]
+    history.append(f"{user}: {message.text}")
+    logger.info(f"[history][{message.chat.id}] {user}: {message.text}")
 
 
 async def cmd_kuplinov(message: Message) -> None:
@@ -132,7 +133,17 @@ async def cmd_kuplinov(message: Message) -> None:
     if not DEEPSEEK_API_KEY:
         await message.answer("DeepSeek API key is missing")
         return
-    context = "\n".join(chat_history)
+    history = chat_history[message.chat.id]
+    context = "\n".join(list(history)[-10:])
+    priority_text = ""
+    if message.reply_to_message:
+        priority_text = (
+            message.reply_to_message.text
+            or message.reply_to_message.caption
+            or ""
+        )
+    elif message.forward_from or message.forward_from_chat or message.forward_sender_name:
+        priority_text = message.text or message.caption or ""
     logger.info(f"Context for /kuplinov:\n{context}")
     prompt = (
         "Сочини шутку по шаблону \"А вот Куплинов (что-то там)\" или \"А вот Куплинов не (что-то там)\". "
@@ -140,8 +151,13 @@ async def cmd_kuplinov(message: Message) -> None:
         "А вот Куплинов уже показал жопу, А вот Куплинов не прогревал своих зрителей и т.д. "
         "Старайся шутить постиронично и лаконично, как Мэддисон ака JoePeach"
         "Ответ дай одним предложением, только шутку, больше ничего не добавляй. "
-        "Для основы шутки бери сообщения из чата которые приведены ниже:\n"
-        f"{context}"
+        + (
+            f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n"
+            if priority_text
+            else ""
+        )
+        + "История чата (включая ответы бота):\n"
+        + f"{context}"
     )
     try:
         async with aiohttp.ClientSession() as session:
@@ -153,3 +169,4 @@ async def cmd_kuplinov(message: Message) -> None:
     except Exception:
         joke = "Не удалось получить шутку."
     await message.answer(joke)
+    history.append(f"Bot: {joke}")
