@@ -17,23 +17,6 @@ except Exception:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 # optional personality for single-bot container
 PERSONALITY = os.getenv("PERSONALITY", "")
-# expected format: "Kuplinov:token1,JoePeach:token2"
-_BOT_TOKENS_RAW = os.getenv("BOT_TOKENS", "").strip()
-BOT_TOKENS: dict[str, str] = {}
-if _BOT_TOKENS_RAW:
-    for part in _BOT_TOKENS_RAW.replace(";", ",").split(","):
-        part = part.strip()
-        if not part or ":" not in part:
-            continue
-        key, token = part.split(":", 1)
-        key = key.strip()
-        token = token.strip()
-        if key and token:
-            BOT_TOKENS[key] = token
-
-# fallback for single-bot setup
-if BOT_TOKEN and not BOT_TOKENS:
-    BOT_TOKENS = {"default": BOT_TOKEN}
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 _GROUP_IDS_RAW = os.getenv("GROUP_IDS", "").strip()
 _GROUP_ID_SINGLE = os.getenv("GROUP_ID", "0").strip()

@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from bot.config import BOT_TOKENS, BOT_TOKEN, PERSONALITY, setup_logging, logger
+from bot.config import BOT_TOKEN, PERSONALITY, setup_logging, logger
 from bot.db import init_db
 from bot.history import init_history
 from bot.handlers import register_handlers
@@ -25,17 +25,11 @@ async def main() -> None:
     await init_history()
     setup_logging()
     if PERSONALITY:
-        token = BOT_TOKENS.get(PERSONALITY, BOT_TOKEN)
-        if not token:
+        if not BOT_TOKEN:
             logger.error("No token provided for personality %s", PERSONALITY)
             return
-        await _start_single_bot(token, PERSONALITY)
+        await _start_single_bot(BOT_TOKEN, PERSONALITY)
         return
-    tasks = [
-        asyncio.create_task(_start_single_bot(token, personality))
-        for personality, token in BOT_TOKENS.items()
-    ]
-    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":

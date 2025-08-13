@@ -2,12 +2,12 @@ import json
 from aiogram import Bot
 
 from .config import logger
-from .history import redis
 
 CHANNEL = "auto_reply"
 
 
 async def listen_auto_replies(bot: Bot, personality: str) -> None:
+    from .history import redis
     from .handlers.common import respond_with_personality_to_chat
 
     pubsub = redis.pubsub()

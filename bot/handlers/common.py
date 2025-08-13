@@ -11,7 +11,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from ..auto_reply import CHANNEL as AUTO_REPLY_CHANNEL
 from ..config import (
     ADMIN_ID,
-    BOT_TOKENS,
     DEEPSEEK_API_KEY,
     DEEPSEEK_URL,
     is_group_allowed,
@@ -276,7 +275,8 @@ async def handle_message(message: Message, personality_key: str) -> None:
     await add_message(message.chat.id, f"{user}: {message.text}")
     bot_id = getattr(message.bot, "id", None)
     triggered = False
-    if len(message.text) > 10:
+    if len(message.text) > 10 and personality_key == "JoePeach":
+        logger.info("TRIGGERED LONG MESSAGE")
         triggered = await increment_count(message.chat.id, message.message_id)
     if (
         message.reply_to_message
@@ -287,7 +287,8 @@ async def handle_message(message: Message, personality_key: str) -> None:
         await respond_with_personality(message, personality_key, message.text, reply_to=message)
         return
     if triggered and random.random() < 0.5:
-        names = list(BOT_TOKENS.keys()) or [personality_key]
+        logger.info("TRIGGERED AUTO REPLY")
+        names = ["Kuplinov", "JoePeach", "Mrazota"]
         personality = random.choice(names)
         payload = {
             "chat_id": message.chat.id,

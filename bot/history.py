@@ -4,11 +4,11 @@ from .config import REDIS_URL
 
 
 redis: Redis
-
+redis = Redis.from_url(REDIS_URL, decode_responses=True)
 
 async def init_history() -> None:
-    global redis
-    redis = Redis.from_url(REDIS_URL, decode_responses=True)
+    ...
+
 
 
 async def add_message(chat_id: int, text: str) -> None:
