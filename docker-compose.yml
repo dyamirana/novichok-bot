@@ -3,14 +3,43 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-  bot:
+  joepeach:
     build: .
     depends_on:
       - redis
     environment:
       BOT_TOKEN: ""
+      BOT_TOKENS: "JoePeach:token1,Kuplinov:token2,Mrazota:token3"
+      PERSONALITY: "JoePeach"
       ADMIN_ID: ""
       DEEPSEEK_API_KEY: ""
       GROUP_IDS: ""
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./data:/app/data
+  kuplinov:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      BOT_TOKEN: ""
+      BOT_TOKENS: "JoePeach:token1,Kuplinov:token2,Mrazota:token3"
+      PERSONALITY: "Kuplinov"
+      DEEPSEEK_API_KEY: ""
+      GROUP_IDS: ""
+      REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      - ./data:/app/data
+  mrazota:
+    build: .
+    depends_on:
+      - redis
+    environment:
+      BOT_TOKEN: ""
+      BOT_TOKENS: "JoePeach:token1,Kuplinov:token2,Mrazota:token3"
+      PERSONALITY: "Mrazota"
+      DEEPSEEK_API_KEY: ""
+      GROUP_IDS: ""
+      REDIS_URL: "redis://redis:6379/0"
     volumes:
       - ./data:/app/data

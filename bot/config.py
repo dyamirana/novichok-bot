@@ -15,6 +15,8 @@ except Exception:
     _LOGURU = False
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+# optional personality for single-bot container
+PERSONALITY = os.getenv("PERSONALITY", "")
 # expected format: "Kuplinov:token1,JoePeach:token2"
 _BOT_TOKENS_RAW = os.getenv("BOT_TOKENS", "").strip()
 BOT_TOKENS: dict[str, str] = {}
@@ -39,6 +41,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DB_PATH = Path(os.getenv("DB_PATH", "data/bot.db"))
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+PROMPTS_DIR = Path(os.getenv("PROMPTS_DIR", "data/prompts"))
 
 def setup_logging():
     level = os.getenv("LOG_LEVEL", "INFO").upper()
