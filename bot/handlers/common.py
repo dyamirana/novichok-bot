@@ -121,10 +121,17 @@ async def track_history(message: Message) -> None:
     logger.info(f"[history][{message.chat.id}] {user}: {message.text}")
 
 
-async def cmd_kuplinov(message: Message) -> None:
+async def _process_deepseek_command(
+    message: Message,
+    base_prompt: str,
+    command: str,
+    error_message: str = "Не удалось получить ответ.",
+) -> None:
     if not is_group_allowed(message.chat.id):
         title = message.chat.title or ""
-        logger.warning(f"[UNALLOWED_CHAT] chat_id={message.chat.id} title='{title}' type={message.chat.type}")
+        logger.warning(
+            f"[UNALLOWED_CHAT] chat_id={message.chat.id} title='{title}' type={message.chat.type}"
+        )
         return
     ok, wait = await check_rate(message.from_user.id)
     if not ok:
@@ -144,19 +151,16 @@ async def cmd_kuplinov(message: Message) -> None:
         )
     elif message.forward_from or message.forward_from_chat or message.forward_sender_name:
         priority_text = message.text or message.caption or ""
-    logger.info(f"Context for /kuplinov:\n{context}")
+    logger.info(f"Context for /{command}:\n{context}")
     prompt = (
-        "Сочини шутку по шаблону \"А вот Куплинов (что-то там)\" или \"А вот Куплинов не (что-то там)\". "
-        "Без цензуры. Пример: А вот Куплинов бы уже прошел эту игру, "
-        "А вот Куплинов уже показал жопу, А вот Куплинов не прогревал своих зрителей и т.д. "
-        "Старайся шутить постиронично и лаконично, как Мэддисон ака JoePeach"
-        "Ответ дай одним предложением, только шутку, больше ничего не добавляй. "
+        base_prompt
+        + "\n"
         + (
             f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n"
             if priority_text
             else ""
         )
-        + "История чата (включая ответы бота):\n"
+        + "История чата (включая ответы бота; их нужно избегать повторять, не зацикливайся):\n"
         + f"{context}"
     )
     try:
@@ -165,8 +169,34 @@ async def cmd_kuplinov(message: Message) -> None:
             payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
             async with session.post(DEEPSEEK_URL, json=payload, headers=headers, timeout=30) as resp:
                 data = await resp.json()
-        joke = data["choices"][0]["message"]["content"].strip()
+        reply = data["choices"][0]["message"]["content"].strip()
     except Exception:
-        joke = "Не удалось получить шутку."
-    await message.answer(joke)
-    history.append(f"Bot: {joke}")
+        reply = error_message
+    await message.answer(reply)
+    history.append(f"Bot: {reply}")
+
+
+async def cmd_kuplinov(message: Message) -> None:
+    prompt = (
+        "Сочини шутку по шаблону \"А вот Куплинов (что-то там)\" или \"А вот Куплинов не (что-то там)\". "
+        "Без цензуры. Пример: А вот Куплинов бы уже прошел эту игру, "
+        "А вот Куплинов уже показал жопу, А вот Куплинов не прогревал своих зрителей и т.д. "
+        "Старайся шутить постиронично и лаконично, как Мэддисон ака JoePeach. "
+        "Ответ дай одним предложением, только шутку, больше ничего не добавляй."
+    )
+    await _process_deepseek_command(message, prompt, "kuplinov", "Не удалось получить шутку.")
+
+
+async def cmd_joepeach(message: Message) -> None:
+    prompt = (
+        "Ты – Илья Мэддисон (он же Жопич, JoePeach) – известный русский стример и видеоблогер. "
+        "Ты общаешься в чате как на своём стриме: остроумно, местами грубо, постиронично. "
+        "Твой стиль – говорить серьёзным тоном, но на самом деле троллить и шутить (тонкая ирония, сарказм). "
+        "Ты обращаешься к аудитории как \"малые\" или \"ребятки\", поддерживая дружеский, неформальный стиль. "
+        "Можешь вставлять умеренную ненормативную лексику для эмоций (например, \"бля, заебись, нахуй\"), но без прямых оскорблений зрителя – лишь дружеские подколы. "
+        "Уместны и жаргонные словечки: \"тупо топ\", \"тупо вкуснятина\", назвать плохое видео \"марамоечным контентом\" и т.д. – используй фирменные фразы Мэддисона. "
+        "Ты уверен в себе, иногда дерзок, но у тебя всегда есть мнение по вопросу. "
+        "Отвечай развернуто, будто рассуждаешь на стриме – можешь вспомнить смешную историю, привести странный пример, сделать отсылку к мемам. "
+        "Постарайся рассмешить, даже если говоришь серьёзным голосом. Твоя задача – выдавать ответ так, словно это сам Мэддисон отвечает."
+    )
+    await _process_deepseek_command(message, prompt, "joepeach")
