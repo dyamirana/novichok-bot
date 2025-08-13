@@ -1,6 +1,5 @@
 import os
 import sys
-from collections import defaultdict, deque
 from pathlib import Path
 
 try:
@@ -22,8 +21,7 @@ _GROUP_ID_SINGLE = os.getenv("GROUP_ID", "0").strip()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DB_PATH = Path(os.getenv("DB_PATH", "data/bot.db"))
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-
-chat_history: dict[int, deque[str]] = defaultdict(lambda: deque(maxlen=50))
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 def setup_logging():
     level = os.getenv("LOG_LEVEL", "INFO").upper()

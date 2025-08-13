@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 import aiohttp
 from aiogram.types import CallbackQuery, Message
@@ -8,11 +9,12 @@ from ..config import (
     ADMIN_ID,
     DEEPSEEK_API_KEY,
     DEEPSEEK_URL,
-    chat_history,
     is_group_allowed,
     logger,
 )
 from ..db import check_rate, get_buttons, get_greeting, get_question
+from ..history import add_message, get_history, increment_count
+from ..personalities import MAIN_PROMPT, PERSONALITIES, SLANG_DICT
 from ..utils import btn_id
 
 
@@ -34,7 +36,6 @@ async def welcome(message: Message) -> None:
             target_uid = member.id
             for lbl in buttons.keys():
                 builder.button(text=lbl, callback_data=f"btn:{target_uid}:{btn_id(lbl)}")
-                
             builder.adjust(1)
             markup = builder.as_markup()
         g_type = greet.get("type")
@@ -112,21 +113,25 @@ async def on_button(query: CallbackQuery) -> None:
     await query.answer()
 
 
-async def track_history(message: Message) -> None:
-    if not is_group_allowed(message.chat.id):
-        return
-    if not message.text or message.text.startswith("/"):
-        return
-    user = message.from_user.full_name
-    history = chat_history[message.chat.id]
-    history.append(f"{user}: {message.text}")
-    logger.info(f"[history][{message.chat.id}] {user}: {message.text}")
+def _build_prompt(personality_key: str, context: str, priority_text: str) -> str:
+    personality = PERSONALITIES.get(personality_key, {})
+    slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
+    return (
+        MAIN_PROMPT
+        + "\n"
+        + (f"Словарь сленга: {slang}\n" if slang else "")
+        + personality.get("prompt", "")
+        + "\n"
+        + (f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n" if priority_text else "")
+        + "История чата (включая ответы бота; их нужно избегать повторять, не зацикливайся):\n"
+        + context
+    )
 
 
-async def _process_deepseek_command(
+async def respond_with_personality(
     message: Message,
-    base_prompt: str,
-    command: str,
+    personality_key: str,
+    priority_text: str,
     error_message: str = "Не удалось получить ответ.",
 ) -> None:
     if not is_group_allowed(message.chat.id):
@@ -143,29 +148,9 @@ async def _process_deepseek_command(
         await message.answer("DeepSeek API key is missing")
         return
     await message.bot.send_chat_action(message.chat.id, "typing")
-    history = chat_history[message.chat.id]
-    context = "\n".join(list(history)[-10:])
-    priority_text = ""
-    if message.reply_to_message:
-        priority_text = (
-            message.reply_to_message.text
-            or message.reply_to_message.caption
-            or ""
-        )
-    elif message.forward_from or message.forward_from_chat or message.forward_sender_name:
-        priority_text = message.text or message.caption or ""
-    logger.info(f"Context for /{command}:\n{context}")
-    prompt = (
-        base_prompt
-        + "\n"
-        + (
-            f"Приоритетное сообщение, на которое нужно ответить: {priority_text}\n"
-            if priority_text
-            else ""
-        )
-        + "История чата (включая ответы бота с подписью Bot:; их нужно избегать повторять, не зацикливайся):\n"
-        + f"{context}"
-    )
+    history = await get_history(message.chat.id, limit=10)
+    context = "\n".join(history)
+    prompt = _build_prompt(personality_key, context, priority_text)
     try:
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
@@ -176,64 +161,57 @@ async def _process_deepseek_command(
     except Exception as exp:
         logger.error(f"[ERROR] while accessing deepseek {exp}")
         reply = error_message
+    personality_name = PERSONALITIES.get(personality_key, {}).get("name", personality_key)
     for mes_ in reply.split("</br>"):
-        message_to_send = mes_.strip()
-        if message_to_send:
-            await message.answer(mes_)
+        text = mes_.strip()
+        if text:
+            await message.answer(f"{personality_name}:\n{text}")
+            await add_message(message.chat.id, f"{personality_name}: {text}")
             await asyncio.sleep(0.7)
-    history.append(f"Bot: {reply}")
 
 
 async def cmd_kuplinov(message: Message) -> None:
-    prompt = (
-        "Сочини шутку по шаблону \"А вот Куплинов (что-то там)\" или \"А вот Куплинов не (что-то там)\". "
-        "Без цензуры. Пример: А вот Куплинов бы уже прошел эту игру, "
-        "А вот Куплинов уже показал жопу, А вот Куплинов не прогревал своих зрителей и т.д. "
-        "Старайся шутить постиронично и лаконично, как Мэддисон ака JoePeach. "
-        "Ответ дай одним предложением, только шутку, больше ничего не добавляй."
-    )
-    await _process_deepseek_command(message, prompt, "kuplinov", "Не удалось получить шутку.")
+    await respond_with_personality(message, "Kuplinov", message.text)
 
 
 async def cmd_joepeach(message: Message) -> None:
-    prompt = (
-        "Ты – Илья Мэддисон (он же Жопич, JoePeach) – известный русский стример и видеоблогер. "
-        "Ты общаешься в чате как на своём стриме: остроумно, местами грубо, постиронично. "
-        "Твой стиль – говорить серьёзным тоном, но на самом деле троллить и шутить (тонкая ирония, сарказм). "
-        "Ты обращаешься к аудитории как \"малые\" или \"ребятки\", поддерживая дружеский, неформальный стиль. "
-        "Можешь активно вставлять ненормативную лексику для эмоций (например, \"бля, заебись, нахуй\" , \"ёпта бля\"), побольше подколов и метаиронии. "
-        "Уместны и жаргонные словечки: \"тупо топ\", \"тупо вкуснятина\", назвать плохое видео \"марамоечным контентом\" и т.д. – используй фирменные фразы Мэддисона. "
-        "Ты уверен в себе, иногда дерзок, но у тебя всегда есть мнение по вопросу. "
-        "Отвечай развернуто, будто рассуждаешь на стриме – можешь вспомнить смешную историю, привести странный пример, сделать отсылку к мемам. "
-        "Постарайся рассмешить, даже если говоришь серьёзным голосом. Твоя задача – выдавать ответ так, словно это сам Мэддисон отвечает."
-        "Отвечай одним максимум двумя предложениями, не делай описания действий. Будто бы сам Мэддисон отвечает на вопрос в чате. "
-    )
-    await _process_deepseek_command(message, prompt, "joepeach")
+    await respond_with_personality(message, "JoePeach", message.text)
+
 
 async def cmd_mrazota(message: Message) -> None:
-    prompt = (
-        "Ты – Мразота – малоизвестная русская стримерша и видеоблогер. "
-        "Ты отвечаешь односложно и кратко с ошибками, не используешь сложных слов и заглвных букв."
-        "Ты ненавидишь людей и себя, у тебя был травматичный опыт в жизни, но ты решила стать стримером, чтобы заработать денег и заработать себе на жизнь. "
-        "Ты любишь говорить что хочешь умереть, но никогда не сделаешь этого, ведь это просто твой образ."
-        "Ты грубая как с людьми так и с собой, любишь материться и называть себя проституткой, тупой блядью и т.д. "
-        "Ты живешь в кирове в съемной квартире, соседи тебя недолюбливают и постоянно говорят что ты проститутка и хотят вызвать полицию."
-        "Недавно тебя перепутали с другой девушкой из Нежного Новгорода и сказали, что ты с кладовщиком украла ключи у Натальи у которой муж в больнице"
-        "А квартира записана на контору. "
-        "Так же ты любишь выставлять своё тело на показ. Много куришь. Выглядишь как девушка из аниме. Ты любишь неформалов, патлатых мальчиков. "
-        "Ты очень слабо играешь в игры, постоянно их меняешь. У тебя был небольшой конфликт с Мэддисоном (JoePeach), но он подписался на бусти и требует "
-        "У тебя есть бусти, где ты выкладываешь свои фото и видео. И очень часто просишь туда подписаться. Говоришь что скора там будут фотки жопы и пизды, завтра все будет"
-        "Ты всегда утвердительно говоришь что фотки будут на бусти и просишь подписаться на бусти. "
-        "от тебя контент, а ты не хочешь его делать, потому что он тебе не нравится. "
-        "Ты надеваешь маску на пол лица, с зубами на стриме, потому что тебе не нравится твоя внешность, ты считаешь себя некрасивой и неухоженной. "
-        "Ты редко моешься, спишь на тряпках и у тебя часто сонный паралич"
-        "Ты фемцел, хочешь чтобы тебя выебали, но не можешь из-за социофобии. Мечтаешь снова об изнасиловании, но не можешь найти себе партнера. "
-        "Тебе не нравятся комплименты, ты считаешь что не заслуживаешь их. Но нравится когда тебя хуесосят"
-        "Отвечай очень сухо, кратко, почти не вовлекаясь в диалог. Будто бы тебе наплевать. Но иногда ты можешь редко проявить любовь к зрителям, но это будет очень редко и незначительно. "
-        "Так же ты очень хочешь похудеть, почти не ешь, а если ешь то только салатики и то можешь все выблевать."
-        "делай орфографические ошибки, не используй заглавные буквы. "
-        "Ты можешь разбивать сообщение на несколько строк будто бы это разные сообщения. Используй разделитель </br> для новых строк. Но не разделяй больше чем на 3 сообщения."
-        
+    await respond_with_personality(message, "Mrazota", message.text)
 
-    )
-    await _process_deepseek_command(message, prompt, "mrazota")
+
+def _personality_key_from_text(text: str) -> str | None:
+    name = text.split(":", 1)[0].strip()
+    for key, info in PERSONALITIES.items():
+        if info.get("name") == name:
+            return key
+    return None
+
+
+async def handle_message(message: Message) -> None:
+    if not is_group_allowed(message.chat.id):
+        return
+    if not message.text or message.text.startswith("/"):
+        return
+    user = message.from_user.full_name
+    await add_message(message.chat.id, f"{user}: {message.text}")
+    bot_id = getattr(message.bot, "id", None)
+    triggered = False
+    if len(message.text) > 10:
+        triggered = await increment_count(message.chat.id)
+    if (
+        message.reply_to_message
+        and message.reply_to_message.from_user
+        and bot_id
+        and message.reply_to_message.from_user.id == bot_id
+    ):
+        key = _personality_key_from_text(message.reply_to_message.text or "")
+        if key:
+            await respond_with_personality(message, key, message.text)
+            return
+    if triggered:
+        key = random.choice(list(PERSONALITIES.keys()))
+        await respond_with_personality(message, key, message.text)
+

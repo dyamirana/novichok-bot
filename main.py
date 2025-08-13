@@ -6,11 +6,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BOT_TOKEN, setup_logging, logger
 from bot.db import init_db
+from bot.history import init_history
 from bot.handlers import register_handlers
 
 
 async def main() -> None:
     await init_db()
+    await init_history()
     setup_logging()
     bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
     dp = Dispatcher(storage=MemoryStorage())
