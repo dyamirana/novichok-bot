@@ -133,6 +133,7 @@ async def respond_with_personality(
     personality_key: str,
     priority_text: str,
     error_message: str = "Не удалось получить ответ.",
+    reply_to: Message | None = None,
 ) -> None:
     if not is_group_allowed(message.chat.id):
         title = message.chat.title or ""
@@ -162,24 +163,28 @@ async def respond_with_personality(
         logger.error(f"[ERROR] while accessing deepseek {exp}")
         reply = error_message
     personality_name = PERSONALITIES.get(personality_key, {}).get("name", personality_key)
+    target = reply_to or message
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
         if text:
-            await message.answer(f"{personality_name}:\n{text}")
+            await target.reply(f"{personality_name}:\n{text}")
             await add_message(message.chat.id, f"{personality_name}: {text}")
             await asyncio.sleep(0.7)
 
 
 async def cmd_kuplinov(message: Message) -> None:
-    await respond_with_personality(message, "Kuplinov", message.text)
+    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    await respond_with_personality(message, "Kuplinov", priority, reply_to=message.reply_to_message)
 
 
 async def cmd_joepeach(message: Message) -> None:
-    await respond_with_personality(message, "JoePeach", message.text)
+    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    await respond_with_personality(message, "JoePeach", priority, reply_to=message.reply_to_message)
 
 
 async def cmd_mrazota(message: Message) -> None:
-    await respond_with_personality(message, "Mrazota", message.text)
+    priority = message.reply_to_message.text if message.reply_to_message else message.text
+    await respond_with_personality(message, "Mrazota", priority, reply_to=message.reply_to_message)
 
 
 def _personality_key_from_text(text: str) -> str | None:
@@ -213,5 +218,8 @@ async def handle_message(message: Message) -> None:
             return
     if triggered:
         key = random.choice(list(PERSONALITIES.keys()))
-        await respond_with_personality(message, key, message.text)
+        priority = message.reply_to_message.text if message.reply_to_message else message.text
+        await respond_with_personality(
+            message, key, priority, reply_to=message.reply_to_message
+        )
 
