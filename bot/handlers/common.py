@@ -195,6 +195,7 @@ async def respond_with_personality(
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
     if reply_to:
         history = await get_thread(message.chat.id, reply_to.message_id)
+        logger.info(f"[RESPONSE] history={history}")
     else:
         history = await get_history(message.chat.id, limit=10)
     context = "\n".join(history)
@@ -216,13 +217,15 @@ async def respond_with_personality(
 
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
+
         if text:
+            history_text = f"Это писал бот, ТЫ {personality_key}:\n{text}"
             if reply_to:
                 sent = await reply_to.reply(text)
-                await add_message(message.chat.id, sent.message_id, text, reply_to.message_id)
+                await add_message(message.chat.id, sent.message_id, history_text, reply_to.message_id)
             else:
                 sent = await message.answer(text)
-                await add_message(message.chat.id, sent.message_id, text, message.message_id)
+                await add_message(message.chat.id, sent.message_id, history_text, message.message_id)
             await asyncio.sleep(0.7)
 
 
