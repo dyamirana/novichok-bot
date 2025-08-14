@@ -275,16 +275,28 @@ async def respond_with_personality_to_chat(
 
 async def cmd_kuplinov(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await respond_with_personality(message, "Kuplinov", priority)
 
 
 async def cmd_joepeach(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await respond_with_personality(message, "JoePeach", priority)
 
 
 async def cmd_mrazota(message: Message) -> None:
     priority = message.reply_to_message.text if message.reply_to_message else ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await respond_with_personality(
         message,
         "Mrazota",
