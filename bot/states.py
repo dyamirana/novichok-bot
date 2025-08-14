@@ -24,3 +24,7 @@ class KuplinovAddState(StatesGroup):
 
 class KuplinovDelState(StatesGroup):
     waiting_id = State()
+
+
+class PersonalityEditState(StatesGroup):
+    waiting_text = State()

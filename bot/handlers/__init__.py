@@ -9,6 +9,7 @@ from ..states import (
     GreetingState,
     KuplinovAddState,
     KuplinovDelState,
+    PersonalityEditState,
     QuestionState,
 )
 from . import admin, common
@@ -22,6 +23,7 @@ def register_handlers(dp: Dispatcher, personality: str) -> None:
         dp.callback_query.register(admin.cmd_set_greeting, F.data == "menu_greeting", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.cmd_set_question, F.data == "menu_question", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.cmd_buttons, F.data == "menu_buttons", F.from_user.id == ADMIN_ID)
+        dp.callback_query.register(admin.cmd_personalities, F.data == "menu_personalities", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.show_buttons_for_delete, F.data == "btn_del", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.show_buttons_for_edit, F.data == "btn_edit", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.process_button_add, F.data == "btn_add", F.from_user.id == ADMIN_ID)
@@ -31,6 +33,11 @@ def register_handlers(dp: Dispatcher, personality: str) -> None:
             F.data.startswith("editbtn:"),
             F.from_user.id == ADMIN_ID,
             StateFilter("*"),
+        )
+        dp.callback_query.register(
+            admin.process_personality_select,
+            F.data.startswith("pers_edit:"),
+            F.from_user.id == ADMIN_ID,
         )
         dp.callback_query.register(admin.cmd_kuplinov_menu, F.data == "menu_kuplinov", F.from_user.id == ADMIN_ID)
         dp.callback_query.register(admin.process_kp_add, F.data == "kp_add", F.from_user.id == ADMIN_ID)
@@ -44,6 +51,7 @@ def register_handlers(dp: Dispatcher, personality: str) -> None:
         dp.message.register(admin.process_button_label, ButtonAddState.waiting_label)
         dp.message.register(admin.process_button_response, ButtonAddState.waiting_response)
         dp.message.register(admin.process_button_edit_response, ButtonEditState.waiting_response)
+        dp.message.register(admin.process_personality_text, PersonalityEditState.waiting_text)
         dp.message.register(admin.process_kp_add_id, KuplinovAddState.waiting_id)
         dp.message.register(admin.process_kp_del_id, KuplinovDelState.waiting_id)
 
