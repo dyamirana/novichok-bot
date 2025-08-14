@@ -23,6 +23,8 @@ _GROUP_ID_SINGLE = os.getenv("GROUP_ID", "0").strip()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DB_PATH = Path(os.getenv("DB_PATH", "data/bot.db"))
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_TEMPERATURE = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.7"))
+DEEPSEEK_PRESENCE_PENALTY = float(os.getenv("DEEPSEEK_PRESENCE_PENALTY", "1"))
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 PROMPTS_DIR = Path(os.getenv("PROMPTS_DIR", "data/prompts"))
 
