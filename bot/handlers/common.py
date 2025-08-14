@@ -219,7 +219,7 @@ async def respond_with_personality(
         text = mes_.strip()
 
         if text:
-            history_text = f"Это писал бот, ТЫ {personality_key}:\n{text}"
+            history_text = f"Это писал ты:\n{text}"
             if reply_to:
                 sent = await reply_to.reply(text)
                 await add_message(message.chat.id, sent.message_id, history_text, reply_to.message_id)
