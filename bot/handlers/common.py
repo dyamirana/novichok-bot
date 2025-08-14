@@ -12,6 +12,8 @@ from ..auto_reply import CHANNEL as AUTO_REPLY_CHANNEL
 from ..config import (
     ADMIN_ID,
     DEEPSEEK_API_KEY,
+    DEEPSEEK_PRESENCE_PENALTY,
+    DEEPSEEK_TEMPERATURE,
     DEEPSEEK_URL,
     is_group_allowed,
     logger,
@@ -150,6 +152,26 @@ def _build_prompt(
     return system_prompt, user_prompt
 
 
+def _build_system_prompt(personality_key: str, additional_context: str | None) -> str:
+    """Construct the system prompt for a given personality."""
+
+    prompt = get_prompt(personality_key)
+    mood = get_mood_prompt(personality_key)
+    slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
+    parts = [
+        MAIN_PROMPT,
+        (
+            f"Словарь сленга (ИСПОЛЬЗУЙ ТОЛЬКО ДЛЯ ПОНИМАНИЯ, НЕ ВСТАВЛЯЙ В ОТВЕТЫ): {slang}\n"
+            if slang
+            else ""
+        ),
+        prompt,
+        mood,
+        (additional_context if additional_context else ""),
+    ]
+    return "\n".join(parts)
+
+
 async def _httpx_post_with_retries(url: str, json_payload: dict, headers: dict, max_attempts: int = 3, timeout: int = 30) -> dict:
     """POST with retries. Retries on network errors and 5xx/429 responses."""
     attempt = 0
@@ -198,12 +220,23 @@ async def respond_with_personality(
         logger.info(f"[RESPONSE] history={history}")
     else:
         history = await get_history(message.chat.id, limit=10)
-    context = "\n".join(history)
-    system_prompt, user_prompt = _build_prompt(personality_key, context, priority_text, additional_context)
 
+    system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
-    _msgs = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-    payload = {"model": "deepseek-chat", "messages": _msgs}
+
+    _msgs = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+        if item["role"] == "assistant" and msg.get("name"):
+            item["name"] = msg["name"]
+        _msgs.append(item)
+
+    payload = {
+        "model": "deepseek-chat",
+        "messages": _msgs,
+        "temperature": DEEPSEEK_TEMPERATURE,
+        "presence_penalty": DEEPSEEK_PRESENCE_PENALTY,
+    }
     try:
         data = await _httpx_post_with_retries(DEEPSEEK_URL, payload, headers, max_attempts=3, timeout=30)
     except Exception as e:
@@ -219,13 +252,26 @@ async def respond_with_personality(
         text = mes_.strip()
 
         if text:
-            history_text = f"Это писал ты:\n{text}"
             if reply_to:
                 sent = await reply_to.reply(text)
-                await add_message(message.chat.id, sent.message_id, history_text, reply_to.message_id)
+                await add_message(
+                    message.chat.id,
+                    sent.message_id,
+                    text,
+                    reply_to.message_id,
+                    role="assistant",
+                    name=personality_key,
+                )
             else:
                 sent = await message.answer(text)
-                await add_message(message.chat.id, sent.message_id, history_text, message.message_id)
+                await add_message(
+                    message.chat.id,
+                    sent.message_id,
+                    text,
+                    message.message_id,
+                    role="assistant",
+                    name=personality_key,
+                )
             await asyncio.sleep(0.7)
 
 
@@ -244,16 +290,22 @@ async def respond_with_personality_to_chat(
         history = await get_thread(chat_id, reply_to_message_id)
     else:
         history = await get_history(chat_id, limit=10)
-    context = "\n".join(history)
-    system_prompt, user_prompt = _build_prompt(
-        personality_key, context, priority_text, additional_context
-    )
+
+    system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
-    _msgs = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-    payload = {"model": "deepseek-chat", "messages": _msgs}
+    _msgs = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+        if item["role"] == "assistant" and msg.get("name"):
+            item["name"] = msg["name"]
+        _msgs.append(item)
+
+    payload = {
+        "model": "deepseek-chat",
+        "messages": _msgs,
+        "temperature": DEEPSEEK_TEMPERATURE,
+        "presence_penalty": DEEPSEEK_PRESENCE_PENALTY,
+    }
     try:
         data = await _httpx_post_with_retries(
             DEEPSEEK_URL, payload, headers, max_attempts=3, timeout=30
@@ -269,7 +321,14 @@ async def respond_with_personality_to_chat(
             sent = await bot.send_message(
                 chat_id, text, reply_to_message_id=reply_to_message_id
             )
-            await add_message(chat_id, sent.message_id, text, reply_to_message_id)
+            await add_message(
+                chat_id,
+                sent.message_id,
+                text,
+                reply_to_message_id,
+                role="assistant",
+                name=personality_key,
+            )
             await asyncio.sleep(0.7)
 
 
@@ -327,7 +386,14 @@ async def handle_message(message: Message, personality_key: str) -> None:
         return
     user_name = getattr(user_obj, "full_name", getattr(user_obj, "title", ""))
     reply_id = message.reply_to_message.message_id if message.reply_to_message else None
-    await add_message(message.chat.id, message.message_id, f"{user_name}: {message.text}", reply_id)
+    await add_message(
+        message.chat.id,
+        message.message_id,
+        message.text,
+        reply_id,
+        role="user",
+        name=user_name,
+    )
     bot_id = getattr(message.bot, "id", None)
     triggered = False
     if should_count_for_random(message, personality_key):
