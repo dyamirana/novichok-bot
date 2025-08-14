@@ -17,7 +17,7 @@ from ..config import (
     logger,
 )
 from ..db import check_rate, get_buttons, get_greeting, get_question
-from ..history import add_message, get_history, increment_count, redis
+from ..history import add_message, get_history, get_thread, increment_count, redis
 from ..personalities import MAIN_PROMPT, SLANG_DICT, get_mood_prompt, get_prompt
 from ..utils import btn_id
 
@@ -120,21 +120,33 @@ async def on_button(query: CallbackQuery) -> None:
     await query.answer()
 
 
-def _build_prompt(personality_key: str, context: str, priority_text: str, additional_context: str) -> tuple[str, str]:
+def _build_prompt(
+    personality_key: str,
+    context: str,
+    priority_text: str,
+    additional_context: str,
+) -> tuple[str, str]:
     prompt = get_prompt(personality_key)
     mood = get_mood_prompt(personality_key)
     slang = ", ".join(f"{k}={v}" for k, v in SLANG_DICT.items())
     system_prompt = "\n".join(
         [
             MAIN_PROMPT,
-            (f"Словарь сленга (ИСПОЛЬЗУЙ ТОЛЬКО ДЛЯ ПОНИМАНИЯ, НЕ ВСТАВЛЯЙ В ОТВЕТЫ): {slang}\n" if slang else ""),
+            (
+                f"Словарь сленга (ИСПОЛЬЗУЙ ТОЛЬКО ДЛЯ ПОНИМАНИЯ, НЕ ВСТАВЛЯЙ В ОТВЕТЫ): {slang}\n"
+                if slang
+                else ""
+            ),
             prompt,
             mood,
             (additional_context if additional_context else ""),
-            "Дальше от пользователя ты получишь историю чата:\n",
+            "Сначала идет сообщение пользователя (если есть), затем история чата:\n",
         ]
     )
-    user_prompt = priority_text if priority_text else context
+    if priority_text:
+        user_prompt = f"{priority_text}\n\n{context}" if context else priority_text
+    else:
+        user_prompt = context
     return system_prompt, user_prompt
 
 
@@ -181,7 +193,10 @@ async def respond_with_personality(
         return
     await message.bot.send_chat_action(message.chat.id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
-    history = await get_history(message.chat.id, limit=10)
+    if reply_to:
+        history = await get_thread(message.chat.id, reply_to.message_id)
+    else:
+        history = await get_history(message.chat.id, limit=10)
     context = "\n".join(history)
     system_prompt, user_prompt = _build_prompt(personality_key, context, priority_text, additional_context)
 
@@ -203,10 +218,11 @@ async def respond_with_personality(
         text = mes_.strip()
         if text:
             if reply_to:
-                await reply_to.reply(text)
+                sent = await reply_to.reply(text)
+                await add_message(message.chat.id, sent.message_id, text, reply_to.message_id)
             else:
-                await message.answer(text)
-            # await add_message(message.chat.id, f"BotAnswer: {text}")
+                sent = await message.answer(text)
+                await add_message(message.chat.id, sent.message_id, text, message.message_id)
             await asyncio.sleep(0.7)
 
 
@@ -221,7 +237,10 @@ async def respond_with_personality_to_chat(
 ) -> None:
     await bot.send_chat_action(chat_id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} chat={chat_id}")
-    history = await get_history(chat_id, limit=10)
+    if reply_to_message_id:
+        history = await get_thread(chat_id, reply_to_message_id)
+    else:
+        history = await get_history(chat_id, limit=10)
     context = "\n".join(history)
     system_prompt, user_prompt = _build_prompt(
         personality_key, context, priority_text, additional_context
@@ -244,29 +263,43 @@ async def respond_with_personality_to_chat(
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
         if text:
-            await bot.send_message(
+            sent = await bot.send_message(
                 chat_id, text, reply_to_message_id=reply_to_message_id
             )
+            await add_message(chat_id, sent.message_id, text, reply_to_message_id)
             await asyncio.sleep(0.7)
 
 
 async def cmd_kuplinov(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else None
+    args = message.get_args()
+    priority = args or (message.reply_to_message.text if message.reply_to_message else "")
     await respond_with_personality(message, "Kuplinov", priority)
 
 
 async def cmd_joepeach(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else None
+    args = message.get_args()
+    priority = args or (message.reply_to_message.text if message.reply_to_message else "")
     await respond_with_personality(message, "JoePeach", priority)
 
 
 async def cmd_mrazota(message: Message) -> None:
-    priority = message.reply_to_message.text if message.reply_to_message else None
+    args = message.get_args()
+    priority = args or (message.reply_to_message.text if message.reply_to_message else "")
     await respond_with_personality(
-        message, "Mrazota", priority,
-        additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!"
-        )
+        message,
+        "Mrazota",
+        priority,
+        additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!",
+    )
 
+
+def should_count_for_random(message: Message, personality_key: str) -> bool:
+    """Return True if message should increment random reply counter."""
+    return (
+        message.chat.type in {"private", "group", "supergroup"}
+        and len(message.text or "") > 10
+        and personality_key == "JoePeach"
+    )
 
 async def handle_message(message: Message, personality_key: str) -> None:
     if not is_group_allowed(message.chat.id):
@@ -281,10 +314,11 @@ async def handle_message(message: Message, personality_key: str) -> None:
     if not user_obj:
         return
     user_name = getattr(user_obj, "full_name", getattr(user_obj, "title", ""))
-    await add_message(message.chat.id, f"{user_name}: {message.text}")
+    reply_id = message.reply_to_message.message_id if message.reply_to_message else None
+    await add_message(message.chat.id, message.message_id, f"{user_name}: {message.text}", reply_id)
     bot_id = getattr(message.bot, "id", None)
     triggered = False
-    if len(message.text) > 10 and personality_key == "JoePeach":
+    if should_count_for_random(message, personality_key):
         logger.info("TRIGGERED LONG MESSAGE")
         triggered = await increment_count(message.chat.id, message.message_id)
     if (

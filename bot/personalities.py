@@ -1,4 +1,6 @@
 import random
+from dataclasses import dataclass
+from typing import ClassVar, Dict, Optional
 
 from .config import PROMPTS_DIR
 
@@ -9,7 +11,7 @@ MAIN_PROMPT = (
 )
 
 # Заполняемый словарь сленга: {"сленг": "значение"}
-SLANG_DICT: dict[str, str] = {
+SLANG_DICT: Dict[str, str] = {
     "теневой": "парень стримерши, которая говорит что у нее нет парня. Разводят симпов на донаты",
     "мразИИна": "ии версия стримерши марамойки Мразота",
     "марамойка": "стримерша, которая разводит симпов на донаты, часто использует сексуальный контент",
@@ -31,7 +33,7 @@ def get_prompt(name: str) -> str:
         return ""
 
 
-MOOD_PROMPTS: dict[str, str] = {
+MOOD_PROMPTS: Dict[str, str] = {
     "игривое": "Ты в игривом настроении, подшучивай и дразни собеседника.",
     "веселое": "Ты в веселом настроении, излучай позитив и шуми.",
     "нейтральное": "У тебя нейтральное настроение, отвечай спокойно и ровно.",
@@ -40,33 +42,59 @@ MOOD_PROMPTS: dict[str, str] = {
 }
 
 
-# Вероятности настроений для разных личностей
-MOOD_WEIGHTS: dict[str, dict[str, int]] = {
-    "JoePeach": {
+@dataclass
+class Personality:
+    name: ClassVar[str]
+    mood_weights: ClassVar[Dict[str, int]] = {}
+
+    def get_mood_prompt(self) -> str:
+        if not self.mood_weights:
+            return ""
+        moods = list(MOOD_PROMPTS.keys())
+        probs = [self.mood_weights.get(mood, 1) for mood in moods]
+        mood = random.choices(moods, weights=probs, k=1)[0]
+        text = MOOD_PROMPTS[mood]
+        return f"Сейчас у тебя {mood} настроение. {text}"
+
+
+class JoePeach(Personality):
+    name = "JoePeach"
+    mood_weights = {
         "игривое": 3,
         "веселое": 3,
         "нейтральное": 2,
         "злое": 1,
         "агрессивное": 1,
-    },
-    "Mrazota": {
+    }
+
+
+class Mrazota(Personality):
+    name = "Mrazota"
+    mood_weights = {
         "игривое": 1,
         "веселое": 1,
         "нейтральное": 2,
         "злое": 3,
         "агрессивное": 3,
-    },
+    }
+
+
+class Kuplinov(Personality):
+    name = "Kuplinov"
+
+
+PERSONALITIES: Dict[str, Personality] = {
+    cls.name: cls() for cls in (JoePeach, Mrazota, Kuplinov)
 }
+
+
+def get_personality(name: str) -> Optional[Personality]:
+    return PERSONALITIES.get(name)
 
 
 def get_mood_prompt(personality: str) -> str:
     """Return random mood prompt for selected personalities."""
-    weights = MOOD_WEIGHTS.get(personality)
-    if not weights:
+    pers = get_personality(personality)
+    if not pers:
         return ""
-    moods = list(MOOD_PROMPTS.keys())
-    probs = [weights.get(mood, 1) for mood in moods]
-    mood = random.choices(moods, weights=probs, k=1)[0]
-    text = MOOD_PROMPTS[mood]
-    return f"Сейчас у тебя {mood} настроение. {text}"
-
+    return pers.get_mood_prompt()

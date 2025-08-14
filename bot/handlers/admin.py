@@ -3,7 +3,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from ..config import ADMIN_ID, logger
+from ..config import ADMIN_ID, PROMPTS_DIR, logger
 from ..db import (
     add_allowed_user,
     add_button,
@@ -16,13 +16,14 @@ from ..db import (
     set_greeting,
     set_question,
 )
-from ..keyboards import buttons_menu, kuplinov_menu, main_menu
+from ..keyboards import buttons_menu, kuplinov_menu, main_menu, personalities_menu
 from ..states import (
     ButtonAddState,
     ButtonEditState,
     GreetingState,
     KuplinovAddState,
     KuplinovDelState,
+    PersonalityEditState,
     QuestionState,
 )
 from ..utils import btn_id, extract_spoiler_from_caption
@@ -289,3 +290,29 @@ async def send_preview(callback: CallbackQuery) -> None:
             text = f"{text}\n\n{q_text}" if text else q_text
         await callback.message.answer(text, reply_markup=markup)
     await callback.answer()
+
+
+async def cmd_personalities(callback: CallbackQuery) -> None:
+    await callback.message.edit_text("Редактирование личностей", reply_markup=personalities_menu())
+    await callback.answer()
+
+
+async def process_personality_select(callback: CallbackQuery, state: FSMContext) -> None:
+    name = callback.data.split(":", 1)[1]
+    await state.update_data(name=name)
+    await callback.message.edit_text(f"Отправьте новый текст для {name}")
+    await state.set_state(PersonalityEditState.waiting_text)
+    await callback.answer()
+
+
+async def process_personality_text(message: Message, state: FSMContext) -> None:
+    if message.from_user.id != ADMIN_ID or message.chat.type != "private":
+        return
+    data = await state.get_data()
+    name = data.get("name")
+    if not name:
+        return
+    file = PROMPTS_DIR / f"{name}.txt"
+    file.write_text(message.text or "", encoding="utf-8")
+    await message.answer("Личность обновлена", reply_markup=personalities_menu())
+    await state.clear()
