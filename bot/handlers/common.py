@@ -289,7 +289,6 @@ async def handle_message(message: Message, personality_key: str) -> None:
         triggered = await increment_count(message.chat.id, message.message_id)
     if (
         message.reply_to_message
-        and message.reply_to_message.from_user
         and bot_id
         and message.reply_to_message.from_user.id == bot_id
     ):
