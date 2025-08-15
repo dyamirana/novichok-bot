@@ -173,16 +173,16 @@ def _build_system_prompt(personality_key: str, additional_context: str | None) -
 
 
 def _history_to_messages(system_prompt: str, history: list[dict]) -> list[dict]:
-    """Build the message list for the DeepSeek API, embedding names into content."""
+    """Build the message list for the DeepSeek API, keeping names separate."""
     messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
-        content = msg.get("content", "")
+        item = {
+            "role": msg.get("role", "user"),
+            "content": msg.get("content", ""),
+        }
         name = msg.get("name")
-        item = {"role": msg.get("role", "user")}
         if name:
-            content = f"{name}: {content}"
             item["name"] = name
-        item["content"] = content
         messages.append(item)
     return messages
 
