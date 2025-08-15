@@ -227,8 +227,9 @@ async def respond_with_personality(
     _msgs = [{"role": "system", "content": system_prompt}]
     for msg in history:
         item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-        if item["role"] == "assistant" and msg.get("name"):
-            item["name"] = msg["name"]
+        name = msg.get("name")
+        if name:
+            item["name"] = name
         _msgs.append(item)
 
     payload = {
@@ -296,8 +297,9 @@ async def respond_with_personality_to_chat(
     _msgs = [{"role": "system", "content": system_prompt}]
     for msg in history:
         item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-        if item["role"] == "assistant" and msg.get("name"):
-            item["name"] = msg["name"]
+        name = msg.get("name")
+        if name:
+            item["name"] = name
         _msgs.append(item)
 
     payload = {
