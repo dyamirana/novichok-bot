@@ -172,6 +172,21 @@ def _build_system_prompt(personality_key: str, additional_context: str | None) -
     return "\n".join(parts)
 
 
+def _history_to_messages(system_prompt: str, history: list[dict]) -> list[dict]:
+    """Build the message list for the DeepSeek API, embedding names into content."""
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        content = msg.get("content", "")
+        name = msg.get("name")
+        item = {"role": msg.get("role", "user")}
+        if name:
+            content = f"{name}: {content}"
+            item["name"] = name
+        item["content"] = content
+        messages.append(item)
+    return messages
+
+
 async def _httpx_post_with_retries(url: str, json_payload: dict, headers: dict, max_attempts: int = 3, timeout: int = 30) -> dict:
     """POST with retries. Retries on network errors and 5xx/429 responses."""
     attempt = 0
@@ -224,13 +239,7 @@ async def respond_with_personality(
     system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
 
-    _msgs = [{"role": "system", "content": system_prompt}]
-    for msg in history:
-        item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-        name = msg.get("name")
-        if name:
-            item["name"] = name
-        _msgs.append(item)
+    _msgs = _history_to_messages(system_prompt, history)
 
     payload = {
         "model": "deepseek-chat",
@@ -294,13 +303,7 @@ async def respond_with_personality_to_chat(
 
     system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
-    _msgs = [{"role": "system", "content": system_prompt}]
-    for msg in history:
-        item = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-        name = msg.get("name")
-        if name:
-            item["name"] = name
-        _msgs.append(item)
+    _msgs = _history_to_messages(system_prompt, history)
 
     payload = {
         "model": "deepseek-chat",
