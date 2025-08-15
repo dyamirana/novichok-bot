@@ -343,7 +343,12 @@ async def cmd_kuplinov(message: Message) -> None:
         await message.delete()
     except Exception:
         pass
-    await respond_with_personality(message, "Kuplinov", priority)
+    await respond_with_personality(
+        message,
+        "Kuplinov",
+        priority,
+        reply_to=message.reply_to_message,
+    )
 
 
 async def cmd_joepeach(message: Message) -> None:
@@ -352,7 +357,12 @@ async def cmd_joepeach(message: Message) -> None:
         await message.delete()
     except Exception:
         pass
-    await respond_with_personality(message, "JoePeach", priority)
+    await respond_with_personality(
+        message,
+        "JoePeach",
+        priority,
+        reply_to=message.reply_to_message,
+    )
 
 
 async def cmd_mrazota(message: Message) -> None:
@@ -365,6 +375,7 @@ async def cmd_mrazota(message: Message) -> None:
         message,
         "Mrazota",
         priority,
+        reply_to=message.reply_to_message,
         additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!",
     )
 
