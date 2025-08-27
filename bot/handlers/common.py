@@ -22,6 +22,7 @@ from ..db import check_rate, get_buttons, get_greeting, get_question
 from ..history import add_message, get_history, get_thread, increment_count, redis
 from ..personalities import MAIN_PROMPT, SLANG_DICT, get_mood_prompt, get_prompt
 from ..utils import btn_id
+from ..tarot import draw_cards
 
 
 transport = AsyncHTTPTransport(retries=3)
@@ -213,6 +214,7 @@ async def respond_with_personality(
     error_message: str = "Не удалось получить ответ.",
     reply_to: Message | None = None,
     additional_context: str | None = None,
+    model: str = "deepseek-chat",
 ) -> None:
     if not is_group_allowed(message.chat.id):
         title = message.chat.title or ""
@@ -242,7 +244,7 @@ async def respond_with_personality(
     _msgs = _history_to_messages(system_prompt, history)
 
     payload = {
-        "model": "deepseek-chat",
+        "model": model,
         "messages": _msgs,
         "temperature": DEEPSEEK_TEMPERATURE,
         "presence_penalty": DEEPSEEK_PRESENCE_PENALTY,
@@ -293,6 +295,7 @@ async def respond_with_personality_to_chat(
     error_message: str = "Не удалось получить ответ.",
     reply_to_message_id: int | None = None,
     additional_context: str | None = None,
+    model: str = "deepseek-chat",
 ) -> None:
     await bot.send_chat_action(chat_id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} chat={chat_id}")
@@ -306,7 +309,7 @@ async def respond_with_personality_to_chat(
     _msgs = _history_to_messages(system_prompt, history)
 
     payload = {
-        "model": "deepseek-chat",
+        "model": model,
         "messages": _msgs,
         "temperature": DEEPSEEK_TEMPERATURE,
         "presence_penalty": DEEPSEEK_PRESENCE_PENALTY,
@@ -377,6 +380,32 @@ async def cmd_mrazota(message: Message) -> None:
         priority,
         reply_to=message.reply_to_message,
         additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!",
+    )
+
+
+async def cmd_taro(message: Message) -> None:
+    """Make a tarot spread and let Mrazota interpret it."""
+    if not message.reply_to_message or not (message.reply_to_message.text or "").strip():
+        await message.reply("Команда должна быть ответом на сообщение с вопросом")
+        return
+    question = message.reply_to_message.text.strip()
+    cards = draw_cards(3)
+    cards_text = ", ".join(cards)
+    await message.reply_to_message.reply(f"Выпали карты: {cards_text}")
+    additional = (
+        "Сейчас ты гадаешь на таро. Отвечай только трактовкой выпавших карт "
+        "в контексте вопроса пользователя и ничего более. "
+        f"Вопрос пользователя: '{question}'. Выпали карты: {cards_text}. "
+        "Сохраняй манеру речи Мразоты и объясняй значение каждой карты, "
+        "например: 'у тебя получится потому что эта карта говорит...'."
+    )
+    await respond_with_personality(
+        message,
+        "Mrazota",
+        question,
+        reply_to=message.reply_to_message,
+        additional_context=additional,
+        model="deepseek-reasoner",
     )
 
 
