@@ -39,6 +39,7 @@ def test_comment_triggers_mrazota(monkeypatch):
 
     asyncio.run(run_handle(msg))
     mock.assert_awaited_once()
-    _, kwargs = mock.call_args
-    assert kwargs["reply_to"] is post
+    args, kwargs = mock.call_args
+    assert args[2] == msg.text
+    assert kwargs["reply_to"] is msg
     assert kwargs["reply_to_comment"] is msg

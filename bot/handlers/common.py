@@ -240,6 +240,10 @@ async def respond_with_personality(
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
 
     _msgs = _history_to_messages(system_prompt, history)
+    if priority_text and (
+        not history or history[-1].get("content") != priority_text
+    ):
+        _msgs.append({"role": "user", "content": priority_text})
 
     payload = {
         "model": model,
@@ -311,6 +315,10 @@ async def respond_with_personality_to_chat(
     system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
     _msgs = _history_to_messages(system_prompt, history)
+    if priority_text and (
+        not history or history[-1].get("content") != priority_text
+    ):
+        _msgs.append({"role": "user", "content": priority_text})
 
     payload = {
         "model": model,
@@ -464,7 +472,7 @@ async def handle_message(message: Message, personality_key: str) -> None:
             message,
             personality_key,
             message.text,
-            reply_to=message.reply_to_message,
+            reply_to=message,
             reply_to_comment=message,
         )
         return
