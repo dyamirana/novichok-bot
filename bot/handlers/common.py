@@ -213,6 +213,7 @@ async def respond_with_personality(
     priority_text: str,
     error_message: str = "Не удалось получить ответ.",
     reply_to: Message | None = None,
+    reply_to_comment: Message | None = None,
     additional_context: str | None = None,
     model: str = "deepseek-chat",
 ) -> None:
@@ -273,12 +274,17 @@ async def respond_with_personality(
                 )
                 already_replied = True
             else:
-                sent = await message.answer(text)
+                if reply_to_comment:
+                    sent = await reply_to_comment.reply(text)
+                    reply_id = reply_to_comment.message_id
+                else:
+                    sent = await message.answer(text)
+                    reply_id = message.message_id
                 await add_message(
                     message.chat.id,
                     sent.message_id,
                     text,
-                    message.message_id,
+                    reply_id,
                     role="assistant",
                     name=personality_key,
                 )
@@ -442,6 +448,26 @@ async def handle_message(message: Message, personality_key: str) -> None:
     if should_count_for_random(message, personality_key):
         logger.info("TRIGGERED LONG MESSAGE")
         triggered = await increment_count(message.chat.id, message.message_id)
+    if (
+        personality_key == "Mrazota"
+        and message.reply_to_message
+        and (
+            getattr(message.reply_to_message, "is_automatic_forward", False)
+            or (
+                getattr(message.reply_to_message, "sender_chat", None)
+                and getattr(message.reply_to_message.sender_chat, "type", "")
+                == "channel"
+            )
+        )
+    ):
+        await respond_with_personality(
+            message,
+            personality_key,
+            message.text,
+            reply_to=message.reply_to_message,
+            reply_to_comment=message,
+        )
+        return
     if (
         message.reply_to_message
         and bot_id
