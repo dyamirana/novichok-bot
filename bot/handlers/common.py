@@ -226,10 +226,6 @@ async def respond_with_personality(
     user = message.from_user or message.sender_chat
     if not user:
         return
-    ok, wait = await check_rate(user.id)
-    if not ok:
-        await message.answer(f"Подожди {wait} сек.")
-        return
     await message.bot.send_chat_action(message.chat.id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
     if reply_to:
@@ -238,6 +234,7 @@ async def respond_with_personality(
     else:
         history = await get_history(message.chat.id, limit=10)
 
+    logger.info(f"[HISTORY] {history}")
     system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
 
@@ -259,12 +256,12 @@ async def respond_with_personality(
             await message.answer(error_message)
         return
     reply = data["choices"][0]["message"]["content"].strip()
-
+    already_replied = False
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
 
         if text:
-            if reply_to:
+            if reply_to and not already_replied:
                 sent = await reply_to.reply(text)
                 await add_message(
                     message.chat.id,
@@ -274,6 +271,7 @@ async def respond_with_personality(
                     role="assistant",
                     name=personality_key,
                 )
+                already_replied = True
             else:
                 sent = await message.answer(text)
                 await add_message(
