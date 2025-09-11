@@ -216,6 +216,7 @@ async def respond_with_personality(
     reply_to_comment: Message | None = None,
     additional_context: str | None = None,
     model: str = "deepseek-chat",
+    delay_range: tuple[int, int] | None = None,
 ) -> None:
     if not is_group_allowed(message.chat.id):
         title = message.chat.title or ""
@@ -227,6 +228,8 @@ async def respond_with_personality(
     user = message.from_user or message.sender_chat
     if not user:
         return
+    if delay_range:
+        await asyncio.sleep(random.uniform(*delay_range))
     await message.bot.send_chat_action(message.chat.id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
     if reply_to:
@@ -304,7 +307,10 @@ async def respond_with_personality_to_chat(
     reply_to_message_id: int | None = None,
     additional_context: str | None = None,
     model: str = "deepseek-chat",
+    delay_range: tuple[int, int] | None = None,
 ) -> None:
+    if delay_range:
+        await asyncio.sleep(random.uniform(*delay_range))
     await bot.send_chat_action(chat_id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} chat={chat_id}")
     if reply_to_message_id:
@@ -474,6 +480,7 @@ async def handle_message(message: Message, personality_key: str) -> None:
             message.text,
             reply_to=message,
             reply_to_comment=message,
+            delay_range=(15, 25),
         )
         return
     if (
@@ -481,7 +488,13 @@ async def handle_message(message: Message, personality_key: str) -> None:
         and bot_id
         and message.reply_to_message.from_user.id == bot_id
     ):
-        await respond_with_personality(message, personality_key, message.text, reply_to=message)
+        await respond_with_personality(
+            message,
+            personality_key,
+            message.text,
+            reply_to=message,
+            delay_range=(15, 25),
+        )
         return
     if triggered and random.random() < 0.5:
         logger.info("TRIGGERED AUTO REPLY")
