@@ -13,10 +13,11 @@ class DummyBot:
         pass
 
 class DummyMessage:
-    def __init__(self, text="hi", chat=None, message_id=1):
+    def __init__(self, text="hi", chat=None, message_id=1, thread_id=0):
         self.text = text
         self.chat = chat or SimpleNamespace(id=1, type="group")
         self.message_id = message_id
+        self.message_thread_id = thread_id
         self.from_user = SimpleNamespace(id=123)
         self.bot = DummyBot()
     async def reply(self, text):

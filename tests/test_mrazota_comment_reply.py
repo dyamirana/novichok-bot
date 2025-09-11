@@ -13,13 +13,23 @@ class DummyChat:
         self.id = id
 
 class DummyMessage:
-    def __init__(self, text, reply_to_message=None, chat=None, message_id=1, from_user=None, bot=None):
+    def __init__(
+        self,
+        text,
+        reply_to_message=None,
+        chat=None,
+        message_id=1,
+        from_user=None,
+        bot=None,
+        thread_id=0,
+    ):
         self.text = text
         self.reply_to_message = reply_to_message
         self.chat = chat or DummyChat()
         self.message_id = message_id
         self.from_user = from_user
         self.bot = bot
+        self.message_thread_id = thread_id
 
 async def run_handle(message):
     await common.handle_message(message, "Mrazota")
