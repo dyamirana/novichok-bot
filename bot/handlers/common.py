@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+from typing import Any
 
 from httpx import AsyncClient, AsyncHTTPTransport
 
@@ -26,6 +27,9 @@ from ..tarot import draw_cards
 
 
 transport = AsyncHTTPTransport(retries=3)
+
+COMMENT_MERGE_WINDOW = 10
+_comment_buffers: dict[tuple[int, int], dict[str, Any]] = {}
 
 
 async def welcome(message: Message) -> None:
@@ -435,6 +439,26 @@ def should_count_for_random(message: Message, personality_key: str) -> bool:
         and personality_key == "JoePeach"
     )
 
+
+async def _process_comment_buffer(key: tuple[int, int], personality_key: str) -> None:
+    try:
+        await asyncio.sleep(COMMENT_MERGE_WINDOW)
+    except asyncio.CancelledError:
+        return
+    data = _comment_buffers.pop(key, None)
+    if not data:
+        return
+    text = " ".join(data["texts"])
+    message = data["last_message"]
+    await respond_with_personality(
+        message,
+        personality_key,
+        text,
+        reply_to=message,
+        reply_to_comment=message,
+        delay_range=(15, 25),
+    )
+
 async def handle_message(message: Message, personality_key: str) -> None:
     if not is_group_allowed(message.chat.id):
         return
@@ -474,14 +498,19 @@ async def handle_message(message: Message, personality_key: str) -> None:
             )
         )
     ):
-        await respond_with_personality(
-            message,
-            personality_key,
-            message.text,
-            reply_to=message,
-            reply_to_comment=message,
-            delay_range=(15, 25),
-        )
+        user_id = getattr(user_obj, "id", None)
+        if user_id is None:
+            return
+        key = (message.chat.id, user_id)
+        data = _comment_buffers.get(key)
+        if data:
+            data["texts"].append(message.text)
+            data["last_message"] = message
+            data["task"].cancel()
+        else:
+            data = {"texts": [message.text], "last_message": message}
+            _comment_buffers[key] = data
+        data["task"] = asyncio.create_task(_process_comment_buffer(key, personality_key))
         return
     if (
         message.reply_to_message
