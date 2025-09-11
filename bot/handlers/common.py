@@ -238,7 +238,7 @@ async def respond_with_personality(
         await asyncio.sleep(random.uniform(*delay_range))
     await message.bot.send_chat_action(message.chat.id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
-    if reply_to:
+    if reply_to and not reply_to_comment:
         history = await get_thread(
             message.chat.id, user_id, thread_id, reply_to.message_id
         )

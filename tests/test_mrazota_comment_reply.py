@@ -31,6 +31,12 @@ class DummyMessage:
         self.bot = bot
         self.message_thread_id = thread_id
 
+    async def reply(self, text):
+        return SimpleNamespace(message_id=42)
+
+    async def answer(self, text):
+        return SimpleNamespace(message_id=43)
+
 async def run_handle(message):
     await common.handle_message(message, "Mrazota")
 
@@ -88,3 +94,34 @@ def test_multiple_comments_combined(monkeypatch):
     assert args[2] == f"{msg1.text} {msg2.text}"
     assert kwargs["reply_to"] is msg2
     assert kwargs["reply_to_comment"] is msg2
+
+
+class DummyBot:
+    async def send_chat_action(self, chat_id, action):
+        pass
+
+
+def test_comment_history_used(monkeypatch):
+    user = SimpleNamespace(is_bot=False, full_name="User", id=1)
+    bot = DummyBot()
+    msg = DummyMessage("hello", from_user=user, bot=bot, thread_id=5)
+
+    monkeypatch.setattr(common, "is_group_allowed", lambda chat_id: True)
+    get_thread = AsyncMock(return_value=[])
+    get_history = AsyncMock(return_value=[])
+    monkeypatch.setattr(common, "get_thread", get_thread)
+    monkeypatch.setattr(common, "get_history", get_history)
+    monkeypatch.setattr(common, "add_message", AsyncMock())
+
+    async def fake_post(url, json_payload, headers, max_attempts=3, timeout=30):
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(common, "_httpx_post_with_retries", fake_post)
+
+    asyncio.run(
+        common.respond_with_personality(
+            msg, "Mrazota", msg.text, reply_to=msg, reply_to_comment=msg
+        )
+    )
+    get_thread.assert_not_awaited()
+    get_history.assert_awaited_once()
