@@ -14,6 +14,8 @@ async def init_history() -> None:
 
 async def add_message(
     chat_id: int,
+    user_id: int,
+    thread_id: int | None,
     msg_id: int,
     text: str,
     reply_to: int | None = None,
@@ -28,24 +30,28 @@ async def add_message(
     - in a hash with reply mapping for building threads
     """
 
-    hist_key = f"chat:{chat_id}:history"
+    tid = thread_id or 0
+    hist_key = f"chat:{chat_id}:thread:{tid}:user:{user_id}:history"
     msg_data: dict[str, str | int] = {"role": role, "content": text}
     if name:
         msg_data["name"] = name
     await redis.rpush(hist_key, json.dumps(msg_data))
     await redis.ltrim(hist_key, -100, -1)
 
-    msg_key = f"chat:{chat_id}:messages"
+    msg_key = f"chat:{chat_id}:thread:{tid}:user:{user_id}:messages"
     data = {"role": role, "content": text, "reply": reply_to or 0}
     if name:
         data["name"] = name
     await redis.hset(msg_key, msg_id, json.dumps(data))
 
 
-async def get_history(chat_id: int, limit: int = 10) -> list[dict]:
+async def get_history(
+    chat_id: int, user_id: int, thread_id: int | None, limit: int = 10
+) -> list[dict]:
     """Return the last messages for a chat as role-based dicts."""
 
-    key = f"chat:{chat_id}:history"
+    tid = thread_id or 0
+    key = f"chat:{chat_id}:thread:{tid}:user:{user_id}:history"
     raw_messages = await redis.lrange(key, -limit, -1)
     messages: list[dict] = []
     for raw in raw_messages:
@@ -67,10 +73,13 @@ async def get_history(chat_id: int, limit: int = 10) -> list[dict]:
     return messages
 
 
-async def get_thread(chat_id: int, msg_id: int) -> list[dict]:
+async def get_thread(
+    chat_id: int, user_id: int, thread_id: int | None, msg_id: int
+) -> list[dict]:
     """Return a message thread starting at ``msg_id`` as role-based dicts."""
 
-    msg_key = f"chat:{chat_id}:messages"
+    tid = thread_id or 0
+    msg_key = f"chat:{chat_id}:thread:{tid}:user:{user_id}:messages"
     msgs: list[dict] = []
     current = msg_id
     while current:

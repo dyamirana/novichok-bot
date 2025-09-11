@@ -230,17 +230,21 @@ async def respond_with_personality(
         return
 
     user = message.from_user or message.sender_chat
-    if not user:
+    if not user or not message.from_user:
         return
+    thread_id = getattr(message, "message_thread_id", 0) or 0
+    user_id = message.from_user.id
     if delay_range:
         await asyncio.sleep(random.uniform(*delay_range))
     await message.bot.send_chat_action(message.chat.id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} user={user.id}")
     if reply_to:
-        history = await get_thread(message.chat.id, reply_to.message_id)
+        history = await get_thread(
+            message.chat.id, user_id, thread_id, reply_to.message_id
+        )
         logger.info(f"[RESPONSE] history={history}")
     else:
-        history = await get_history(message.chat.id, limit=10)
+        history = await get_history(message.chat.id, user_id, thread_id, limit=10)
 
     logger.info(f"[HISTORY] {history}")
     system_prompt = _build_system_prompt(personality_key, additional_context)
@@ -277,6 +281,8 @@ async def respond_with_personality(
                 sent = await reply_to.reply(text)
                 await add_message(
                     message.chat.id,
+                    user_id,
+                    thread_id,
                     sent.message_id,
                     text,
                     reply_to.message_id,
@@ -293,6 +299,8 @@ async def respond_with_personality(
                     reply_id = message.message_id
                 await add_message(
                     message.chat.id,
+                    user_id,
+                    thread_id,
                     sent.message_id,
                     text,
                     reply_id,
@@ -305,6 +313,8 @@ async def respond_with_personality(
 async def respond_with_personality_to_chat(
     bot: Bot,
     chat_id: int,
+    user_id: int,
+    thread_id: int | None,
     personality_key: str,
     priority_text: str,
     error_message: str = "Не удалось получить ответ.",
@@ -318,9 +328,9 @@ async def respond_with_personality_to_chat(
     await bot.send_chat_action(chat_id, "typing")
     logger.info(f"[REQUEST] personality={personality_key} chat={chat_id}")
     if reply_to_message_id:
-        history = await get_thread(chat_id, reply_to_message_id)
+        history = await get_thread(chat_id, user_id, thread_id, reply_to_message_id)
     else:
-        history = await get_history(chat_id, limit=10)
+        history = await get_history(chat_id, user_id, thread_id, limit=10)
 
     system_prompt = _build_system_prompt(personality_key, additional_context)
     headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
@@ -353,6 +363,8 @@ async def respond_with_personality_to_chat(
             )
             await add_message(
                 chat_id,
+                user_id,
+                thread_id,
                 sent.message_id,
                 text,
                 reply_to_message_id,
@@ -469,12 +481,16 @@ async def handle_message(message: Message, personality_key: str) -> None:
     ):
         return
     user_obj = message.from_user or message.sender_chat
-    if not user_obj:
+    if not user_obj or not message.from_user:
         return
+    thread_id = getattr(message, "message_thread_id", 0) or 0
+    user_id = message.from_user.id
     user_name = getattr(user_obj, "full_name", getattr(user_obj, "title", ""))
     reply_id = message.reply_to_message.message_id if message.reply_to_message else None
     await add_message(
         message.chat.id,
+        user_id,
+        thread_id,
         message.message_id,
         message.text,
         reply_id,
@@ -531,6 +547,8 @@ async def handle_message(message: Message, personality_key: str) -> None:
         personality = random.choice(names)
         payload = {
             "chat_id": message.chat.id,
+            "user_id": user_id,
+            "thread_id": thread_id,
             "msg_id": message.message_id,
             "text": message.text,
             "personality": personality,

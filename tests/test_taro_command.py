@@ -10,12 +10,13 @@ from bot.handlers import common
 
 
 class DummyMessage:
-    def __init__(self, text="", reply_to_message=None):
+    def __init__(self, text="", reply_to_message=None, thread_id=0):
         self.text = text
         self.reply_to_message = reply_to_message
         self.chat = SimpleNamespace(id=1, type="private")
         self.from_user = SimpleNamespace(id=123)
         self.replied = None
+        self.message_thread_id = thread_id
 
     async def reply(self, text):
         self.replied = text
