@@ -30,7 +30,12 @@ async def listen_auto_replies(bot: Bot, personality: str) -> None:
             continue
         try:
             await respond_with_personality_to_chat(
-                bot, chat_id, personality, text, reply_to_message_id=msg_id
+                bot,
+                chat_id,
+                personality,
+                text,
+                reply_to_message_id=msg_id,
+                delay_range=(60, 180),
             )
         except Exception as e:
             logger.error(f"[AUTO_REPLY_FAIL] chat_id={chat_id} err={e}")
