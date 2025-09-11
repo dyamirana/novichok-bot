@@ -32,6 +32,7 @@ class DummyMessage:
 
 
 def test_followup_messages_reply_to_post(monkeypatch):
+    sent_to.clear()
     post = DummyMessage(10, "post")
     comment = DummyMessage(20, "comment", reply_to_message=post)
     monkeypatch.setattr(common, "is_group_allowed", lambda cid: True)
@@ -48,6 +49,30 @@ def test_followup_messages_reply_to_post(monkeypatch):
     asyncio.run(common.respond_with_personality(comment, "Mrazota", comment.text, reply_to=comment, reply_to_comment=comment))
 
     assert sent_to[0][0] is comment
+    assert sent_to[0][1] == "first"
+    assert sent_to[1][0] is post
+    assert sent_to[1][1] == "second"
+
+
+def test_followup_when_replying_to_bot_comment(monkeypatch):
+    sent_to.clear()
+    post = DummyMessage(10, "post")
+    bot_comment = DummyMessage(15, "bot", reply_to_message=post)
+    user_reply = DummyMessage(20, "reply", reply_to_message=bot_comment)
+    monkeypatch.setattr(common, "is_group_allowed", lambda cid: True)
+    monkeypatch.setattr(common, "get_thread", AsyncMock(return_value=[]))
+    monkeypatch.setattr(common, "get_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(common, "add_message", AsyncMock())
+    monkeypatch.setattr(common.asyncio, "sleep", AsyncMock())
+
+    async def fake_post(url, json_payload, headers, max_attempts=3, timeout=30):
+        return {"choices": [{"message": {"content": "first</br>second"}}]}
+
+    monkeypatch.setattr(common, "_httpx_post_with_retries", fake_post)
+
+    asyncio.run(common.respond_with_personality(user_reply, "Mrazota", user_reply.text, reply_to=user_reply, reply_to_comment=user_reply))
+
+    assert sent_to[0][0] is user_reply
     assert sent_to[0][1] == "first"
     assert sent_to[1][0] is post
     assert sent_to[1][1] == "second"

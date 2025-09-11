@@ -293,6 +293,8 @@ async def respond_with_personality(
             else:
                 if reply_to_comment:
                     parent = getattr(reply_to_comment, "reply_to_message", None)
+                    while parent and getattr(parent, "reply_to_message", None):
+                        parent = parent.reply_to_message
                     target = parent or reply_to_comment
                     sent = await target.reply(text)
                     reply_id = target.message_id
