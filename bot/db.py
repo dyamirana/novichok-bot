@@ -5,7 +5,7 @@ import aiosqlite
 from .config import DB_PATH, ADMIN_ID
 
 
-db: aiosqlite.Connection
+db: aiosqlite.Connection | None = None
 
 
 async def init_db() -> aiosqlite.Connection:
@@ -25,6 +25,10 @@ async def init_db() -> aiosqlite.Connection:
             response TEXT
         );
         CREATE TABLE IF NOT EXISTS allowed_users
+        (
+            user_id INTEGER PRIMARY KEY
+        );
+        CREATE TABLE IF NOT EXISTS banned_users
         (
             user_id INTEGER PRIMARY KEY
         );
@@ -116,6 +120,20 @@ async def is_allowed(uid: int) -> bool:
     if uid == ADMIN_ID:
         return True
     async with db.execute("SELECT 1 FROM allowed_users WHERE user_id=?", (uid,)) as cur:
+        return await cur.fetchone() is not None
+
+
+async def add_banned_user(uid: int) -> None:
+    if db is None:
+        return
+    await db.execute("INSERT OR IGNORE INTO banned_users(user_id) VALUES(?)", (uid,))
+    await db.commit()
+
+
+async def is_banned(uid: int) -> bool:
+    if db is None:
+        return False
+    async with db.execute("SELECT 1 FROM banned_users WHERE user_id=?", (uid,)) as cur:
         return await cur.fetchone() is not None
 
 

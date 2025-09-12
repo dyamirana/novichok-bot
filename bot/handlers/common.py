@@ -19,7 +19,14 @@ from ..config import (
     is_group_allowed,
     logger,
 )
-from ..db import check_rate, get_buttons, get_greeting, get_question
+from ..db import (
+    add_banned_user,
+    check_rate,
+    get_buttons,
+    get_greeting,
+    get_question,
+    is_banned,
+)
 from ..history import add_message, get_history, get_thread, increment_count, redis
 from ..personalities import MAIN_PROMPT, SLANG_DICT, get_mood_prompt, get_prompt
 from ..utils import btn_id
@@ -41,6 +48,8 @@ async def welcome(message: Message) -> None:
     bot_id = getattr(message.bot, "id", None)
     for member in message.new_chat_members:
         if member.is_bot or (bot_id and member.id == bot_id):
+            continue
+        if await is_banned(member.id):
             continue
         mention = member.mention_html()
         markup = None
@@ -76,7 +85,7 @@ async def welcome(message: Message) -> None:
 async def on_button(query: CallbackQuery) -> None:
     in_group = is_group_allowed(query.message.chat.id)
     in_admin_preview = (query.message.chat.type == "private" and query.from_user.id == ADMIN_ID)
-    if not (in_group or in_admin_preview):
+    if await is_banned(query.from_user.id) or not (in_group or in_admin_preview):
         await query.answer()
         return
     data = (query.data or "")
@@ -379,6 +388,8 @@ async def respond_with_personality_to_chat(
 
 
 async def cmd_kuplinov(message: Message) -> None:
+    if await is_banned(message.from_user.id):
+        return
     priority = message.reply_to_message.text if message.reply_to_message else ""
     try:
         await message.delete()
@@ -393,6 +404,8 @@ async def cmd_kuplinov(message: Message) -> None:
 
 
 async def cmd_joepeach(message: Message) -> None:
+    if await is_banned(message.from_user.id):
+        return
     priority = message.reply_to_message.text if message.reply_to_message else ""
     try:
         await message.delete()
@@ -407,6 +420,8 @@ async def cmd_joepeach(message: Message) -> None:
 
 
 async def cmd_mrazota(message: Message) -> None:
+    if await is_banned(message.from_user.id):
+        return
     priority = message.reply_to_message.text if message.reply_to_message else ""
     try:
         await message.delete()
@@ -421,7 +436,31 @@ async def cmd_mrazota(message: Message) -> None:
     )
 
 
+async def cmd_ban(message: Message) -> None:
+    if message.from_user.id != ADMIN_ID:
+        return
+    target_id = None
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+    else:
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) > 1:
+            try:
+                target_id = int(parts[1])
+            except ValueError:
+                return
+    if not target_id:
+        return
+    await add_banned_user(target_id)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
 async def cmd_taro(message: Message) -> None:
+    if await is_banned(message.from_user.id):
+        return
     """Make a tarot spread and let Mrazota interpret it."""
     if not message.reply_to_message or not (message.reply_to_message.text or "").strip():
         await message.reply("Команда должна быть ответом на сообщение с вопросом")
@@ -486,6 +525,8 @@ async def handle_message(message: Message, personality_key: str) -> None:
         return
     user_obj = message.from_user or message.sender_chat
     if not user_obj or not message.from_user:
+        return
+    if await is_banned(user_obj.id):
         return
     thread_id = getattr(message, "message_thread_id", 0) or 0
     user_id = message.from_user.id
