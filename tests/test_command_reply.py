@@ -9,9 +9,16 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from bot.handlers import common
 
 
+class DummyUser:
+    def __init__(self, id=1):
+        self.id = id
+
+
 class DummyMessage:
-    def __init__(self, reply_to_message=None):
+    def __init__(self, reply_to_message=None, from_user=None):
         self.reply_to_message = reply_to_message
+        self.from_user = from_user or DummyUser()
+
     async def delete(self):
         pass
 

@@ -64,5 +64,6 @@ def register_handlers(dp: Dispatcher, personality: str) -> None:
     elif personality == "Mrazota":
         dp.message.register(common.cmd_mrazota, Command("mrazota"))
         dp.message.register(common.cmd_taro, Command("taro"))
+        dp.message.register(common.cmd_ban, Command("ban"), F.from_user.id == ADMIN_ID)
     dp.callback_query.register(common.on_button, F.data.startswith("btn:"))
     dp.message.register(partial(common.handle_message, personality_key=personality), F.text)
