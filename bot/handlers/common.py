@@ -282,6 +282,16 @@ async def respond_with_personality(
         return
     reply = data["choices"][0]["message"]["content"].strip()
     already_replied = False
+    comment_thread_id = (
+        getattr(reply_to_comment, "message_thread_id", None)
+        if reply_to_comment
+        else None
+    )
+    comment_reply_to_id = (
+        getattr(reply_to_comment, "message_id", None)
+        if reply_to_comment
+        else None
+    )
     for mes_ in reply.split("</br>"):
         text = mes_.strip()
 
@@ -300,13 +310,18 @@ async def respond_with_personality(
                 )
                 already_replied = True
             else:
-                if reply_to_comment:
-                    parent = getattr(reply_to_comment, "reply_to_message", None)
-                    while parent and getattr(parent, "reply_to_message", None):
-                        parent = parent.reply_to_message
-                    target = parent or reply_to_comment
-                    sent = await target.reply(text)
-                    reply_id = target.message_id
+                if (
+                    reply_to_comment
+                    and comment_thread_id
+                    and getattr(message, "bot", None)
+                ):
+                    sent = await message.bot.send_message(
+                        message.chat.id,
+                        text,
+                        reply_to_message_id=comment_reply_to_id,
+                        message_thread_id=comment_thread_id,
+                    )
+                    reply_id = comment_reply_to_id
                 else:
                     sent = await message.answer(text)
                     reply_id = message.message_id
