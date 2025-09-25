@@ -282,7 +282,7 @@ async def respond_with_personality(
         return
     reply = data["choices"][0]["message"]["content"].strip()
     already_replied = False
-    for mes_ in reply.split("</br>"):
+    for mes_ in reply.split("\n"):
         text = mes_.strip()
 
         if text:
@@ -368,7 +368,7 @@ async def respond_with_personality_to_chat(
         await bot.send_message(chat_id, error_message, reply_to_message_id=reply_to_message_id)
         return
     reply = data["choices"][0]["message"]["content"].strip()
-    for mes_ in reply.split("</br>"):
+    for mes_ in reply.split("\n"):
         text = mes_.strip()
         if text:
             sent = await bot.send_message(
@@ -432,11 +432,15 @@ async def cmd_mrazota(message: Message) -> None:
         "Mrazota",
         priority,
         reply_to=message.reply_to_message,
-        additional_context="Ты можешь разделить ответ на несколько строк на основе </br> в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!",
+        additional_context="Ты можешь разделить ответ на несколько строк на основе в тексте ответа. Обязательно используй это. Не больше трех отдельных строк!!!!",
     )
 
 
 async def cmd_ban(message: Message) -> None:
+    try:
+        await message.delete()
+    except Exception:
+        pass
     if message.from_user.id != ADMIN_ID:
         return
     target_id = None
@@ -452,11 +456,7 @@ async def cmd_ban(message: Message) -> None:
     if not target_id:
         return
     await add_banned_user(target_id)
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
+    logger.info(f"[BAN] admin={message.from_user.id} target={target_id}")
 
 async def cmd_taro(message: Message) -> None:
     if await is_banned(message.from_user.id):
